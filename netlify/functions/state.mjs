@@ -2,20 +2,21 @@ import { getStore } from "@netlify/blobs";
 
 const store = getStore("smart-care-state");
 
+const CORS_HEADERS = {
+  "content-type": "application/json; charset=utf-8",
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-headers": "content-type"
+};
+
 function json(statusCode, payload) {
-  return {
-    statusCode,
-    headers: {
-      "content-type": "application/json; charset=utf-8",
-      "access-control-allow-origin": "*",
-      "access-control-allow-methods": "GET,POST,OPTIONS",
-      "access-control-allow-headers": "content-type"
-    },
-    body: JSON.stringify(payload)
-  };
+  return new Response(JSON.stringify(payload), {
+    status: statusCode,
+    headers: CORS_HEADERS
+  });
 }
 
-export default async (req) => {
+export default async function handler(req) {
   if (req.method === "OPTIONS") return json(200, { ok: true });
 
   try {
@@ -29,7 +30,12 @@ export default async (req) => {
     }
 
     if (req.method === "POST") {
-      const body = await req.json();
+      let body;
+      try {
+        body = await req.json();
+      } catch {
+        return json(400, { ok: false, error: "invalid json" });
+      }
       if (!body || typeof body !== "object") return json(400, { ok: false, error: "invalid body" });
 
       await store.setJSON(syncKey, body);
@@ -40,4 +46,4 @@ export default async (req) => {
   } catch (error) {
     return json(500, { ok: false, error: String(error && error.message ? error.message : error) });
   }
-};
+}
