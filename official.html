@@ -1,9 +1,10 @@
 <!doctype html>
 <html lang="zh-Hant">
 <head>
+  <meta name="deploy-probe" content="DEPLOY_PROBE_20260724_6482">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Smart Care 教保服務智慧管理平台｜正式版</title>
+  <title>Smart Care 教保服務智慧管理平台</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;800&display=swap" rel="stylesheet">
@@ -281,6 +282,23 @@
       gap: 12px;
     }
 
+    .multi-check {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+      gap: 6px 10px;
+      padding: 8px;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: #fff;
+    }
+
+    .multi-check label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 13px;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -454,6 +472,11 @@
         <div class="field">
           <label>操作紀錄</label>
           <button class="btn" id="openLogBtn">查看全部紀錄</button>
+        </div>
+        <div class="field">
+          <label>雲端同步</label>
+          <button class="btn" id="syncNowBtn">立即同步</button>
+          <div class="mini" id="syncStatusText">尚未同步</div>
         </div>
       </section>
 
@@ -675,10 +698,234 @@
     }
 
     const STORAGE_KEY = "smart-care-state-v1";
+    const DEVICE_KEY = "smart-care-device-id-v1";
+    const CLOUD_SYNC_ENDPOINT = "/.netlify/functions/state";
+    const CLOUD_SYNC_KEY = "smart-care-main";
+    let cloudPushTimer = null;
+    let cloudPullTimer = null;
+    let cloudPushInFlight = false;
+    let cloudReconcileInFlight = false;
+    let isApplyingCloudState = false;
+
+    function getDeviceId() {
+      const cached = localStorage.getItem(DEVICE_KEY);
+      if (cached) return cached;
+      const next = id();
+      localStorage.setItem(DEVICE_KEY, next);
+      return next;
+    }
+
+    function setSyncStatus(text) {
+      const el = document.getElementById("syncStatusText");
+      if (!el) return;
+      el.textContent = text;
+    }
+
+    function nowClock() {
+      return new Date().toLocaleTimeString("zh-TW", { hour12: false });
+    }
+
+    function updateSyncMeta() {
+      state._meta = {
+        ...(state._meta || {}),
+        updatedAt: Date.now(),
+        deviceId: getDeviceId()
+      };
+    }
+
+    function buildCloudPayload() {
+      const payload = { _meta: { ...(state._meta || {}) } };
+      Object.entries(state).forEach(([key, value]) => {
+        if (Array.isArray(value)) payload[key] = value;
+      });
+      return payload;
+    }
+
+    function getItemScore(item) {
+      const candidates = [item && item.updatedAtIso, item && item.createdAtIso, item && item.updatedAt, item && item.createdAt];
+      for (const value of candidates) {
+        if (!value) continue;
+        const ms = typeof value === "number" ? value : Date.parse(String(value));
+        if (!Number.isNaN(ms)) return ms;
+      }
+      return 0;
+    }
+
+    function mergeArraysForCloud(localArr, remoteArr) {
+      const local = Array.isArray(localArr) ? localArr : [];
+      const remote = Array.isArray(remoteArr) ? remoteArr : [];
+      if (!local.length) return remote;
+      if (!remote.length) return local;
+
+      const allObject = [...local, ...remote].every(x => x && typeof x === "object" && !Array.isArray(x));
+      if (!allObject) {
+        const seen = new Set();
+        const merged = [];
+        [...local, ...remote].forEach(item => {
+          const key = JSON.stringify(item);
+          if (seen.has(key)) return;
+          seen.add(key);
+          merged.push(item);
+        });
+        return merged;
+      }
+
+      const map = new Map();
+      [...local, ...remote].forEach(item => {
+        const mapKey = String(item.id || "");
+        if (!mapKey) {
+          map.set(`${JSON.stringify(item)}-${map.size}`, item);
+          return;
+        }
+        const prev = map.get(mapKey);
+        if (!prev || getItemScore(item) >= getItemScore(prev)) map.set(mapKey, item);
+      });
+      return Array.from(map.values());
+    }
+
+    function applyCloudPayload(remotePayload) {
+      if (!remotePayload || typeof remotePayload !== "object") return false;
+      const before = JSON.stringify(buildCloudPayload());
+      Object.entries(remotePayload).forEach(([key, value]) => {
+        if (key === "_meta") return;
+        if (!Array.isArray(value)) return;
+        state[key] = mergeArraysForCloud(state[key], value);
+      });
+      const localUpdatedAt = Number(state._meta && state._meta.updatedAt || 0);
+      const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
+      if (remoteUpdatedAt > localUpdatedAt) {
+        state._meta = {
+          ...(state._meta || {}),
+          ...remotePayload._meta
+        };
+      }
+      return before !== JSON.stringify(buildCloudPayload());
+    }
+
+    async function pullCloudState() {
+      try {
+        setSyncStatus("同步中：讀取雲端...");
+        const resp = await fetch(`${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(CLOUD_SYNC_KEY)}`);
+        if (!resp.ok) {
+          setSyncStatus("雲端讀取失敗");
+          return;
+        }
+        const data = await resp.json();
+        if (!data || !data.ok) {
+          setSyncStatus("雲端讀取失敗");
+          return;
+        }
+        if (!data.value) {
+          setSyncStatus(`已同步（${nowClock()}）`);
+          return;
+        }
+        const changed = applyCloudPayload(data.value);
+        if (!changed) {
+          setSyncStatus(`已同步（${nowClock()}）`);
+          return;
+        }
+        isApplyingCloudState = true;
+        renderAll();
+        setSyncStatus(`已同步（${nowClock()}）`);
+      } catch (err) {
+        console.warn("雲端讀取失敗", err);
+        setSyncStatus("雲端讀取失敗");
+      } finally {
+        isApplyingCloudState = false;
+      }
+    }
+
+    async function pushCloudState() {
+      if (cloudPushInFlight) return;
+      cloudPushInFlight = true;
+      try {
+        setSyncStatus("同步中：寫入雲端...");
+        await fetch(`${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(CLOUD_SYNC_KEY)}`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(buildCloudPayload())
+        });
+        setSyncStatus(`已同步（${nowClock()}）`);
+      } catch (err) {
+        console.warn("雲端寫入失敗", err);
+        setSyncStatus("雲端寫入失敗");
+      } finally {
+        cloudPushInFlight = false;
+      }
+    }
+
+    function queueCloudPush() {
+      clearTimeout(cloudPushTimer);
+      cloudPushTimer = setTimeout(() => {
+        pushCloudState();
+      }, 900);
+    }
+
+    async function reconcileCloudState(triggerLabel = "自動") {
+      if (cloudReconcileInFlight) return;
+      cloudReconcileInFlight = true;
+      try {
+        setSyncStatus(`同步中：${triggerLabel}合併...`);
+        await pullCloudState();
+        await pushCloudState();
+        setSyncStatus(`已同步（${nowClock()}）`);
+      } catch (err) {
+        console.warn("雲端合併同步失敗", err);
+        setSyncStatus("雲端合併同步失敗");
+      } finally {
+        cloudReconcileInFlight = false;
+      }
+    }
+
+    function wirePresenceSync() {
+      window.addEventListener("focus", () => {
+        reconcileCloudState("回到頁面");
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reconcileCloudState("頁面可見");
+      });
+      window.addEventListener("online", () => {
+        reconcileCloudState("網路恢復");
+      });
+    }
+
+    async function startCloudSync() {
+      await reconcileCloudState("啟動");
+      clearInterval(cloudPullTimer);
+      cloudPullTimer = setInterval(() => {
+        pullCloudState();
+      }, 20000);
+    }
+
+    async function manualCloudSync(buttonEl) {
+      const btn = buttonEl || document.getElementById("syncNowBtn");
+      if (!btn || btn.disabled) return;
+      const originalText = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "同步中...";
+      setSyncStatus("同步中：手動同步...");
+      try {
+        await pullCloudState();
+        await pushCloudState();
+        setSyncStatus(`手動同步完成（${nowClock()}）`);
+        alert("雲端同步完成");
+      } catch (err) {
+        console.warn("手動同步失敗", err);
+        setSyncStatus("手動同步失敗");
+        alert("雲端同步失敗，請稍後再試");
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    }
 
     function saveState() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        if (!isApplyingCloudState) updateSyncMeta();
+        const serialized = JSON.stringify(state);
+        if (localStorage.getItem(STORAGE_KEY) === serialized) return;
+        localStorage.setItem(STORAGE_KEY, serialized);
+        if (!isApplyingCloudState) queueCloudPush();
       } catch (err) {
         console.warn("無法儲存本機資料", err);
       }
@@ -696,6 +943,20 @@
         console.warn("無法載入本機資料", err);
         return false;
       }
+    }
+
+    function wireStorageSync() {
+      window.addEventListener("storage", e => {
+        if (e.key !== STORAGE_KEY || !e.newValue) return;
+        try {
+          const parsed = JSON.parse(e.newValue);
+          if (!parsed || typeof parsed !== "object") return;
+          Object.assign(state, parsed);
+          renderAll();
+        } catch (err) {
+          console.warn("跨頁同步失敗", err);
+        }
+      });
     }
 
     function log(action, detail) {
@@ -761,10 +1022,13 @@
         const hasSavedState = loadState();
         if (!hasSavedState) ensureDemoRecords();
         else if (!state.logs) state.logs = [];
+        wireStorageSync();
+        wirePresenceSync();
         renderNav();
         wireToolbar();
         fillFilters();
         renderAll();
+        startCloudSync();
         log("系統啟動", "Smart Care 管理平台已載入");
       } catch (err) {
         document.body.innerHTML = `<div style="padding:24px;font-family:sans-serif;"><h2>Smart Care 載入失敗</h2><p>${String(err && err.message ? err.message : err)}</p><p>請重新整理，或開啟 TUNNEL_FIX.md 依指引排除。</p></div>`;
@@ -869,6 +1133,7 @@
           strategy: "轉移活動",
           handling: "先帶離現場，降低刺激並口頭提醒",
           soothing: "陪同深呼吸、給予安靜空間",
+          handlingResult: "情緒恢復平穩並回到工作",
           location: "教室",
           activity: "工作",
           recoverMinutes: 5,
@@ -944,6 +1209,9 @@
       document.getElementById("openLogBtn").addEventListener("click", () => {
         state.activeView = "logs";
         switchView();
+      });
+      document.getElementById("syncNowBtn").addEventListener("click", e => {
+        manualCloudSync(e.currentTarget);
       });
     }
 
@@ -1937,6 +2205,20 @@
       const permittedClients = getPermittedClientNames();
       const clientOptions = permittedClients.map(name => `<option>${name}</option>`).join("");
       const serviceFilter = state.serviceFilter || { category: "全部", keyword: "", clientName: "全部個案" };
+      const behaviorPresetOptions = behaviorOptions.filter(x => x !== "自訂");
+      const splitBehaviors = value => String(value || "")
+        .split(/[、,，\n]/)
+        .map(x => x.trim())
+        .filter(Boolean);
+      const collectBehaviors = formData => {
+        const selected = Array.from(formData.getAll("behaviors")).map(x => String(x || "").trim()).filter(Boolean);
+        const custom = splitBehaviors(formData.get("behaviorCustom"));
+        const merged = [...selected];
+        custom.forEach(item => {
+          if (!merged.includes(item)) merged.push(item);
+        });
+        return merged;
+      };
       const serviceClientOptions = ["全部個案", ...permittedClients]
         .map(n => `<option ${serviceFilter.clientName === n ? "selected" : ""}>${n}</option>`).join("");
       const serviceCategoryOptions = ["全部", ...serviceCategories]
@@ -1975,12 +2257,13 @@
             <div class="field"><label>恢復分鐘</label><select name="recoverMinutes">${emotionDurations.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>A 前因</label><select name="antecedent">${antecedentOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>A 自訂</label><input name="antecedentCustom" placeholder="若選自訂請填"></div>
-            <div class="field"><label>B 行為</label><select name="behavior">${behaviorOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
-            <div class="field"><label>B 自訂</label><input name="behaviorCustom" placeholder="若選自訂請填"></div>
-            <div class="field"><label>C 結果</label><select name="consequence">${consequenceOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
+            <div class="field" style="grid-column:1 / -1;"><label>B 行為問題（可複選）</label><div class="multi-check">${behaviorPresetOptions.map(x => `<label><input type="checkbox" name="behaviors" value="${x}"> ${x}</label>`).join("")}</div></div>
+            <div class="field" style="grid-column:1 / -1;"><label>B 自訂行為（可多項，請用逗號分隔）</label><input name="behaviorCustom" placeholder="例如：敲桌、碎念"></div>
             <div class="field"><label>介入策略</label><select name="strategy">${strategyOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
+            <div class="field"><label>C 結果</label><select name="consequence">${consequenceOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>處理方式</label><input name="handling" placeholder="例如：先帶離現場並口頭提醒"></div>
             <div class="field"><label>安撫方式</label><input name="soothing" placeholder="例如：陪同深呼吸、給安靜空間"></div>
+            <div class="field"><label>行為處理結果</label><input name="handlingResult" placeholder="例如：情緒穩定，已回到活動"></div>
             <div class="field"><label>地點</label><select name="location">${eventLocations.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>活動</label><select name="activity">${eventActivities.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>📷 照片</label><input type="file" name="photos" accept="image/*" multiple></div>
@@ -2090,7 +2373,9 @@
         const clientName = String(fd.get("clientName") || "");
         if (!canAccessClientByRole(clientName)) return alert("教保員僅可新增自己班級個案紀錄");
         const antecedent = fd.get("antecedent") === "自訂" ? (fd.get("antecedentCustom") || "自訂前因") : fd.get("antecedent");
-        const behavior = fd.get("behavior") === "自訂" ? (fd.get("behaviorCustom") || "自訂行為") : fd.get("behavior");
+        const behaviors = collectBehaviors(fd);
+        if (!behaviors.length) return alert("請至少勾選或輸入 1 項行為問題");
+        const behavior = behaviors.join("、");
         const photos = Array.from(fd.getAll("photos")).map(f => f && f.name).filter(Boolean);
         const videos = Array.from(fd.getAll("videos")).map(f => f && f.name).filter(Boolean);
         state.behaviorEvents.unshift({
@@ -2104,6 +2389,7 @@
           strategy: fd.get("strategy"),
           handling: fd.get("handling"),
           soothing: fd.get("soothing"),
+          handlingResult: fd.get("handlingResult"),
           location: fd.get("location"),
           activity: fd.get("activity"),
           recoverMinutes: Number(fd.get("recoverMinutes") || 0),
@@ -2126,15 +2412,18 @@
         const fd = new FormData(abcForm);
         const clientName = String(fd.get("clientName") || "");
         if (!canAccessClientByRole(clientName)) return alert("教保員僅可修改自己班級個案紀錄");
+        const behaviors = collectBehaviors(fd);
+        if (!behaviors.length) return alert("請至少勾選或輸入 1 項行為問題");
         row.date = fd.get("date");
         row.time = fd.get("time");
         row.clientName = clientName;
         row.antecedent = fd.get("antecedent") === "自訂" ? (fd.get("antecedentCustom") || row.antecedent) : fd.get("antecedent");
-        row.behavior = fd.get("behavior") === "自訂" ? (fd.get("behaviorCustom") || row.behavior) : fd.get("behavior");
+        row.behavior = behaviors.join("、");
         row.consequence = fd.get("consequence");
         row.strategy = fd.get("strategy");
         row.handling = fd.get("handling");
         row.soothing = fd.get("soothing");
+        row.handlingResult = fd.get("handlingResult");
         row.location = fd.get("location");
         row.activity = fd.get("activity");
         row.recoverMinutes = Number(fd.get("recoverMinutes") || 0);
@@ -2231,7 +2520,7 @@
           <td>${r.clientName}</td>
           <td>A:${r.antecedent}<br>B:${r.behavior}<br>C:${r.consequence}</td>
           <td>${r.location} / ${r.activity}</td>
-          <td>${r.strategy}<br><span class="mini">處理：${r.handling || "-"}</span><br><span class="mini">安撫：${r.soothing || "-"}</span><br><span class="mini">恢復 ${r.recoverMinutes} 分</span></td>
+          <td>${r.strategy}<br><span class="mini">處理：${r.handling || "-"}</span><br><span class="mini">安撫：${r.soothing || "-"}</span><br><span class="mini">結果：${r.handlingResult || "-"}</span><br><span class="mini">恢復 ${r.recoverMinutes} 分</span></td>
           <td>${r.photos?.length ? "📷" + r.photos.length : "-"} ${r.videos?.length ? "🎥" + r.videos.length : ""}</td>
           <td>${r.createdBy || "-"}</td>
           <td><button class="btn" data-abc-manage="${r.id}">管理</button></td>
@@ -2300,12 +2589,18 @@
         abcForm.elements["recoverMinutes"].value = row.recoverMinutes;
         abcForm.elements["antecedent"].value = antecedentOptions.includes(row.antecedent) ? row.antecedent : "自訂";
         abcForm.elements["antecedentCustom"].value = antecedentOptions.includes(row.antecedent) ? "" : row.antecedent;
-        abcForm.elements["behavior"].value = behaviorOptions.includes(row.behavior) ? row.behavior : "自訂";
-        abcForm.elements["behaviorCustom"].value = behaviorOptions.includes(row.behavior) ? "" : row.behavior;
+        const behaviorItems = splitBehaviors(row.behavior);
+        const selectedBehaviorSet = new Set(behaviorItems);
+        Array.from(abcForm.querySelectorAll('input[name="behaviors"]')).forEach(el => {
+          el.checked = selectedBehaviorSet.has(el.value);
+        });
+        const customBehaviorItems = behaviorItems.filter(x => !behaviorPresetOptions.includes(x));
+        abcForm.elements["behaviorCustom"].value = customBehaviorItems.join("、");
         abcForm.elements["consequence"].value = row.consequence;
         abcForm.elements["strategy"].value = row.strategy;
         abcForm.elements["handling"].value = row.handling || "";
         abcForm.elements["soothing"].value = row.soothing || "";
+        abcForm.elements["handlingResult"].value = row.handlingResult || "";
         abcForm.elements["location"].value = row.location;
         abcForm.elements["activity"].value = row.activity;
         abcForm.elements["note"].value = row.note || "";
