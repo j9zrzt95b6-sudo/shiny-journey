@@ -475,6 +475,7 @@
         <div class="field">
           <label>雲端同步</label>
           <button class="btn" id="syncNowBtn">立即同步</button>
+          <div class="mini" id="syncStatusText">尚未同步</div>
         </div>
       </section>
 
@@ -712,6 +713,16 @@
       return next;
     }
 
+    function setSyncStatus(text) {
+      const el = document.getElementById("syncStatusText");
+      if (!el) return;
+      el.textContent = text;
+    }
+
+    function nowClock() {
+      return new Date().toLocaleTimeString("zh-TW", { hour12: false });
+    }
+
     function updateSyncMeta() {
       state._meta = {
         ...(state._meta || {}),
@@ -791,16 +802,32 @@
 
     async function pullCloudState() {
       try {
+        setSyncStatus("同步中：讀取雲端...");
         const resp = await fetch(`${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(CLOUD_SYNC_KEY)}`);
-        if (!resp.ok) return;
+        if (!resp.ok) {
+          setSyncStatus("雲端讀取失敗");
+          return;
+        }
         const data = await resp.json();
-        if (!data || !data.ok || !data.value) return;
+        if (!data || !data.ok) {
+          setSyncStatus("雲端讀取失敗");
+          return;
+        }
+        if (!data.value) {
+          setSyncStatus(`已同步（${nowClock()}）`);
+          return;
+        }
         const changed = applyCloudPayload(data.value);
-        if (!changed) return;
+        if (!changed) {
+          setSyncStatus(`已同步（${nowClock()}）`);
+          return;
+        }
         isApplyingCloudState = true;
         renderAll();
+        setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
         console.warn("雲端讀取失敗", err);
+        setSyncStatus("雲端讀取失敗");
       } finally {
         isApplyingCloudState = false;
       }
@@ -810,13 +837,16 @@
       if (cloudPushInFlight) return;
       cloudPushInFlight = true;
       try {
+        setSyncStatus("同步中：寫入雲端...");
         await fetch(`${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(CLOUD_SYNC_KEY)}`, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(buildCloudPayload())
         });
+        setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
         console.warn("雲端寫入失敗", err);
+        setSyncStatus("雲端寫入失敗");
       } finally {
         cloudPushInFlight = false;
       }
@@ -843,12 +873,15 @@
       const originalText = btn.textContent;
       btn.disabled = true;
       btn.textContent = "同步中...";
+      setSyncStatus("同步中：手動同步...");
       try {
         await pullCloudState();
         await pushCloudState();
+        setSyncStatus(`手動同步完成（${nowClock()}）`);
         alert("雲端同步完成");
       } catch (err) {
         console.warn("手動同步失敗", err);
+        setSyncStatus("手動同步失敗");
         alert("雲端同步失敗，請稍後再試");
       } finally {
         btn.disabled = false;
