@@ -675,8 +675,8 @@
     }
 
     function nowMeta() {
-      const at = Date.now();
-      return { at, iso: new Date(at).toISOString() };
+      const timestamp = Date.now();
+      return { timestamp, iso: new Date(timestamp).toISOString() };
     }
 
     function withCreateMeta(record) {
@@ -684,18 +684,18 @@
       return {
         id: record.id || id(),
         ...record,
-        createdAt: record.createdAt ?? meta.at,
+        createdAt: record.createdAt ?? meta.timestamp,
         createdAtIso: record.createdAtIso ?? meta.iso,
-        updatedAt: meta.at,
+        updatedAt: meta.timestamp,
         updatedAtIso: meta.iso
       };
     }
 
     function touchUpdateMeta(record) {
       const meta = nowMeta();
-      record.updatedAt = meta.at;
+      record.updatedAt = meta.timestamp;
       record.updatedAtIso = meta.iso;
-      if (record.createdAt == null) record.createdAt = meta.at;
+      if (record.createdAt == null) record.createdAt = meta.timestamp;
       if (record.createdAtIso == null) record.createdAtIso = meta.iso;
       if (!record.id) record.id = id();
       return record;
