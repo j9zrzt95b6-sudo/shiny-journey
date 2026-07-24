@@ -674,6 +674,33 @@
       return `${y}-${m}-${day}`;
     }
 
+    function nowMeta() {
+      const at = Date.now();
+      return { at, iso: new Date(at).toISOString() };
+    }
+
+    function withCreateMeta(record) {
+      const meta = nowMeta();
+      return {
+        id: record.id || id(),
+        ...record,
+        createdAt: record.createdAt ?? meta.at,
+        createdAtIso: record.createdAtIso ?? meta.iso,
+        updatedAt: meta.at,
+        updatedAtIso: meta.iso
+      };
+    }
+
+    function touchUpdateMeta(record) {
+      const meta = nowMeta();
+      record.updatedAt = meta.at;
+      record.updatedAtIso = meta.iso;
+      if (record.createdAt == null) record.createdAt = meta.at;
+      if (record.createdAtIso == null) record.createdAtIso = meta.iso;
+      if (!record.id) record.id = id();
+      return record;
+    }
+
     const STORAGE_KEY = "smart-care-state-v1";
 
     function saveState() {
@@ -2093,8 +2120,7 @@
         const behavior = fd.get("behavior") === "自訂" ? (fd.get("behaviorCustom") || "自訂行為") : fd.get("behavior");
         const photos = Array.from(fd.getAll("photos")).map(f => f && f.name).filter(Boolean);
         const videos = Array.from(fd.getAll("videos")).map(f => f && f.name).filter(Boolean);
-        state.behaviorEvents.unshift({
-          id: id(),
+        state.behaviorEvents.unshift(withCreateMeta({
           date: fd.get("date"),
           time: fd.get("time"),
           clientName,
@@ -2110,9 +2136,8 @@
           note: fd.get("note"),
           photos,
           videos,
-          createdBy: getCurrentActor(),
-          createdAtIso: new Date().toISOString()
-        });
+          createdBy: getCurrentActor()
+        }));
         state.selectedBehaviorForEdit = null;
         log("新增 ABC 事件", `${clientName}/${behavior}`);
         renderAll();
@@ -2139,6 +2164,7 @@
         row.activity = fd.get("activity");
         row.recoverMinutes = Number(fd.get("recoverMinutes") || 0);
         row.note = fd.get("note");
+        touchUpdateMeta(row);
         log("更新 ABC 事件", `${row.clientName}/${row.behavior}`);
         renderAll();
       });
