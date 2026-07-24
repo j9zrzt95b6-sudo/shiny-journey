@@ -2257,10 +2257,10 @@
             <div class="field"><label>恢復分鐘</label><select name="recoverMinutes">${emotionDurations.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>A 前因</label><select name="antecedent">${antecedentOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>A 自訂</label><input name="antecedentCustom" placeholder="若選自訂請填"></div>
-            <div class="field"><label>介入策略</label><select name="strategy">${strategyOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
-            <div class="field"><label>C 結果</label><select name="consequence">${consequenceOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field" style="grid-column:1 / -1;"><label>B 行為問題（可複選）</label><div class="multi-check">${behaviorPresetOptions.map(x => `<label><input type="checkbox" name="behaviors" value="${x}"> ${x}</label>`).join("")}</div></div>
             <div class="field" style="grid-column:1 / -1;"><label>B 自訂行為（可多項，請用逗號分隔）</label><input name="behaviorCustom" placeholder="例如：敲桌、碎念"></div>
+            <div class="field"><label>介入策略</label><select name="strategy">${strategyOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
+            <div class="field"><label>C 結果</label><select name="consequence">${consequenceOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>處理方式</label><input name="handling" placeholder="例如：先帶離現場並口頭提醒"></div>
             <div class="field"><label>安撫方式</label><input name="soothing" placeholder="例如：陪同深呼吸、給安靜空間"></div>
             <div class="field"><label>行為處理結果</label><input name="handlingResult" placeholder="例如：情緒穩定，已回到活動"></div>
