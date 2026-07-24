@@ -674,6 +674,30 @@
       return `${y}-${m}-${day}`;
     }
 
+    const STORAGE_KEY = "smart-care-state-v1";
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (err) {
+        console.warn("無法儲存本機資料", err);
+      }
+    }
+
+    function loadState() {
+      try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) return false;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== "object") return false;
+        Object.assign(state, parsed);
+        return true;
+      } catch (err) {
+        console.warn("無法載入本機資料", err);
+        return false;
+      }
+    }
+
     function log(action, detail) {
       state.logs.unshift({
         id: id(),
@@ -684,6 +708,7 @@
         detail
       });
       renderLogs();
+      saveState();
     }
 
     function getRoleOperators(role) {
@@ -733,7 +758,9 @@
     function init() {
       try {
         ensureRuntimeFallbacks();
-        ensureDemoRecords();
+        const hasSavedState = loadState();
+        if (!hasSavedState) ensureDemoRecords();
+        else if (!state.logs) state.logs = [];
         renderNav();
         wireToolbar();
         fillFilters();
@@ -840,6 +867,8 @@
           behavior: "大叫",
           consequence: "口頭安撫",
           strategy: "轉移活動",
+          handling: "先帶離現場，降低刺激並口頭提醒",
+          soothing: "陪同深呼吸、給予安靜空間",
           location: "教室",
           activity: "工作",
           recoverMinutes: 5,
@@ -958,6 +987,7 @@
       renderLogs();
       renderMobile();
       fillFilters();
+      saveState();
     }
 
     function renderDashboard() {
@@ -1949,6 +1979,8 @@
             <div class="field"><label>B 自訂</label><input name="behaviorCustom" placeholder="若選自訂請填"></div>
             <div class="field"><label>C 結果</label><select name="consequence">${consequenceOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>介入策略</label><select name="strategy">${strategyOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
+            <div class="field"><label>處理方式</label><input name="handling" placeholder="例如：先帶離現場並口頭提醒"></div>
+            <div class="field"><label>安撫方式</label><input name="soothing" placeholder="例如：陪同深呼吸、給安靜空間"></div>
             <div class="field"><label>地點</label><select name="location">${eventLocations.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>活動</label><select name="activity">${eventActivities.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>📷 照片</label><input type="file" name="photos" accept="image/*" multiple></div>
@@ -2018,7 +2050,7 @@
         });
         state.selectedEmotionForEdit = null;
         log("新增情緒紀錄", `${clientName}/${fd.get("emotion")}`);
-        renderEmotion();
+        renderAll();
       });
 
       host.querySelector("#emotionUpdateBtn").addEventListener("click", () => {
@@ -2038,7 +2070,7 @@
         row.activity = fd.get("activity");
         row.note = fd.get("note");
         log("更新情緒紀錄", `${row.clientName}/${row.emotion}`);
-        renderEmotion();
+        renderAll();
       });
 
       host.querySelector("#emotionDeleteBtn").addEventListener("click", () => {
@@ -2049,7 +2081,7 @@
         const removed = state.emotionRecords.splice(idx, 1)[0];
         state.selectedEmotionForEdit = null;
         log("刪除情緒紀錄", `${removed.clientName}/${removed.emotion}`);
-        renderEmotion();
+        renderAll();
       });
 
       abcForm.addEventListener("submit", e => {
@@ -2070,6 +2102,8 @@
           behavior,
           consequence: fd.get("consequence"),
           strategy: fd.get("strategy"),
+          handling: fd.get("handling"),
+          soothing: fd.get("soothing"),
           location: fd.get("location"),
           activity: fd.get("activity"),
           recoverMinutes: Number(fd.get("recoverMinutes") || 0),
@@ -2081,7 +2115,7 @@
         });
         state.selectedBehaviorForEdit = null;
         log("新增 ABC 事件", `${clientName}/${behavior}`);
-        renderEmotion();
+        renderAll();
       });
 
       host.querySelector("#abcUpdateBtn").addEventListener("click", () => {
@@ -2099,12 +2133,14 @@
         row.behavior = fd.get("behavior") === "自訂" ? (fd.get("behaviorCustom") || row.behavior) : fd.get("behavior");
         row.consequence = fd.get("consequence");
         row.strategy = fd.get("strategy");
+        row.handling = fd.get("handling");
+        row.soothing = fd.get("soothing");
         row.location = fd.get("location");
         row.activity = fd.get("activity");
         row.recoverMinutes = Number(fd.get("recoverMinutes") || 0);
         row.note = fd.get("note");
         log("更新 ABC 事件", `${row.clientName}/${row.behavior}`);
-        renderEmotion();
+        renderAll();
       });
 
       host.querySelector("#abcDeleteBtn").addEventListener("click", () => {
@@ -2115,7 +2151,7 @@
         const removed = state.behaviorEvents.splice(idx, 1)[0];
         state.selectedBehaviorForEdit = null;
         log("刪除 ABC 事件", `${removed.clientName}/${removed.behavior}`);
-        renderEmotion();
+        renderAll();
       });
 
       serviceForm.addEventListener("submit", e => {
@@ -2135,7 +2171,7 @@
         });
         state.selectedServiceForEdit = null;
         log("新增服務紀錄", `${clientName}/${fd.get("category")}`);
-        renderEmotion();
+        renderAll();
       });
 
       host.querySelector("#serviceUpdateBtn").addEventListener("click", () => {
@@ -2152,7 +2188,7 @@
         row.title = fd.get("title");
         row.detail = fd.get("detail");
         log("更新服務紀錄", `${row.clientName}/${row.category}`);
-        renderEmotion();
+        renderAll();
       });
 
       host.querySelector("#serviceDeleteBtn").addEventListener("click", () => {
@@ -2163,7 +2199,7 @@
         const removed = state.serviceRecords.splice(idx, 1)[0];
         state.selectedServiceForEdit = null;
         log("刪除服務紀錄", `${removed.clientName}/${removed.category}`);
-        renderEmotion();
+        renderAll();
       });
 
       const emotionRows = state.emotionRecords
@@ -2195,7 +2231,7 @@
           <td>${r.clientName}</td>
           <td>A:${r.antecedent}<br>B:${r.behavior}<br>C:${r.consequence}</td>
           <td>${r.location} / ${r.activity}</td>
-          <td>${r.strategy}<br><span class="mini">恢復 ${r.recoverMinutes} 分</span></td>
+          <td>${r.strategy}<br><span class="mini">處理：${r.handling || "-"}</span><br><span class="mini">安撫：${r.soothing || "-"}</span><br><span class="mini">恢復 ${r.recoverMinutes} 分</span></td>
           <td>${r.photos?.length ? "📷" + r.photos.length : "-"} ${r.videos?.length ? "🎥" + r.videos.length : ""}</td>
           <td>${r.createdBy || "-"}</td>
           <td><button class="btn" data-abc-manage="${r.id}">管理</button></td>
@@ -2268,6 +2304,8 @@
         abcForm.elements["behaviorCustom"].value = behaviorOptions.includes(row.behavior) ? "" : row.behavior;
         abcForm.elements["consequence"].value = row.consequence;
         abcForm.elements["strategy"].value = row.strategy;
+        abcForm.elements["handling"].value = row.handling || "";
+        abcForm.elements["soothing"].value = row.soothing || "";
         abcForm.elements["location"].value = row.location;
         abcForm.elements["activity"].value = row.activity;
         abcForm.elements["note"].value = row.note || "";
