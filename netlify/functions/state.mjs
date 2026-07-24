@@ -1,7 +1,5 @@
 import { getStore } from "@netlify/blobs";
 
-const store = getStore("smart-care-state");
-
 const CORS_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "access-control-allow-origin": "*",
@@ -16,10 +14,16 @@ function json(statusCode, payload) {
   });
 }
 
-export default async function handler(req) {
+export default async function handler(req, context) {
   if (req.method === "OPTIONS") return json(200, { ok: true });
 
   try {
+    const store = context?.blobs?.getStore
+      ? context.blobs.getStore("smart-care-state")
+      : context?.netlify?.blobs?.getStore
+        ? context.netlify.blobs.getStore("smart-care-state")
+        : getStore("smart-care-state");
+
     const url = new URL(req.url);
     const syncKey = (url.searchParams.get("key") || "smart-care-default").trim();
     if (!syncKey) return json(400, { ok: false, error: "missing key" });
