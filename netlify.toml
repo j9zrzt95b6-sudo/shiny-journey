@@ -1,0 +1,15 @@
+[build]
+  publish = "."
+
+[functions]
+  directory = "netlify/functions"
+
+[[redirects]]
+  from = "/"
+  to = "/official.html"
+  status = 200
+
+[[redirects]]
+  from = "/release"
+  to = "/release.html"
+  status = 200
