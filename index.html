@@ -698,7 +698,6 @@
     }
 
     const STORAGE_KEY = "smart-care-state-v1";
-<<<<<<< HEAD
     const DEVICE_KEY = "smart-care-device-id-v1";
     const CLOUD_SYNC_ENDPOINT = "/.netlify/functions/state";
     const CLOUD_SYNC_KEY = "smart-care-main";
@@ -898,12 +897,6 @@
         if (localStorage.getItem(STORAGE_KEY) === serialized) return;
         localStorage.setItem(STORAGE_KEY, serialized);
         if (!isApplyingCloudState) queueCloudPush();
-=======
-
-    function saveState() {
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
       } catch (err) {
         console.warn("無法儲存本機資料", err);
       }
@@ -923,7 +916,6 @@
       }
     }
 
-<<<<<<< HEAD
     function wireStorageSync() {
       window.addEventListener("storage", e => {
         if (e.key !== STORAGE_KEY || !e.newValue) return;
@@ -938,8 +930,6 @@
       });
     }
 
-=======
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
     function log(action, detail) {
       state.logs.unshift({
         id: id(),
@@ -1003,10 +993,7 @@
         const hasSavedState = loadState();
         if (!hasSavedState) ensureDemoRecords();
         else if (!state.logs) state.logs = [];
-<<<<<<< HEAD
         wireStorageSync();
-=======
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
         renderNav();
         wireToolbar();
         fillFilters();
@@ -1116,10 +1103,7 @@
           strategy: "轉移活動",
           handling: "先帶離現場，降低刺激並口頭提醒",
           soothing: "陪同深呼吸、給予安靜空間",
-<<<<<<< HEAD
           handlingResult: "情緒恢復平穩並回到工作",
-=======
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
           location: "教室",
           activity: "工作",
           recoverMinutes: 5,
@@ -2244,17 +2228,12 @@
             <div class="field"><label>A 前因</label><select name="antecedent">${antecedentOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>A 自訂</label><input name="antecedentCustom" placeholder="若選自訂請填"></div>
             <div class="field"><label>介入策略</label><select name="strategy">${strategyOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
-<<<<<<< HEAD
             <div class="field"><label>C 結果</label><select name="consequence">${consequenceOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field" style="grid-column:1 / -1;"><label>B 行為問題（可複選）</label><div class="multi-check">${behaviorPresetOptions.map(x => `<label><input type="checkbox" name="behaviors" value="${x}"> ${x}</label>`).join("")}</div></div>
             <div class="field" style="grid-column:1 / -1;"><label>B 自訂行為（可多項，請用逗號分隔）</label><input name="behaviorCustom" placeholder="例如：敲桌、碎念"></div>
             <div class="field"><label>處理方式</label><input name="handling" placeholder="例如：先帶離現場並口頭提醒"></div>
             <div class="field"><label>安撫方式</label><input name="soothing" placeholder="例如：陪同深呼吸、給安靜空間"></div>
             <div class="field"><label>行為處理結果</label><input name="handlingResult" placeholder="例如：情緒穩定，已回到活動"></div>
-=======
-            <div class="field"><label>處理方式</label><input name="handling" placeholder="例如：先帶離現場並口頭提醒"></div>
-            <div class="field"><label>安撫方式</label><input name="soothing" placeholder="例如：陪同深呼吸、給安靜空間"></div>
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
             <div class="field"><label>地點</label><select name="location">${eventLocations.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>活動</label><select name="activity">${eventActivities.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>📷 照片</label><input type="file" name="photos" accept="image/*" multiple></div>
@@ -2380,10 +2359,7 @@
           strategy: fd.get("strategy"),
           handling: fd.get("handling"),
           soothing: fd.get("soothing"),
-<<<<<<< HEAD
           handlingResult: fd.get("handlingResult"),
-=======
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
           location: fd.get("location"),
           activity: fd.get("activity"),
           recoverMinutes: Number(fd.get("recoverMinutes") || 0),
@@ -2417,10 +2393,7 @@
         row.strategy = fd.get("strategy");
         row.handling = fd.get("handling");
         row.soothing = fd.get("soothing");
-<<<<<<< HEAD
         row.handlingResult = fd.get("handlingResult");
-=======
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
         row.location = fd.get("location");
         row.activity = fd.get("activity");
         row.recoverMinutes = Number(fd.get("recoverMinutes") || 0);
@@ -2517,11 +2490,7 @@
           <td>${r.clientName}</td>
           <td>A:${r.antecedent}<br>B:${r.behavior}<br>C:${r.consequence}</td>
           <td>${r.location} / ${r.activity}</td>
-<<<<<<< HEAD
           <td>${r.strategy}<br><span class="mini">處理：${r.handling || "-"}</span><br><span class="mini">安撫：${r.soothing || "-"}</span><br><span class="mini">結果：${r.handlingResult || "-"}</span><br><span class="mini">恢復 ${r.recoverMinutes} 分</span></td>
-=======
-          <td>${r.strategy}<br><span class="mini">處理：${r.handling || "-"}</span><br><span class="mini">安撫：${r.soothing || "-"}</span><br><span class="mini">恢復 ${r.recoverMinutes} 分</span></td>
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
           <td>${r.photos?.length ? "📷" + r.photos.length : "-"} ${r.videos?.length ? "🎥" + r.videos.length : ""}</td>
           <td>${r.createdBy || "-"}</td>
           <td><button class="btn" data-abc-manage="${r.id}">管理</button></td>
@@ -2601,10 +2570,7 @@
         abcForm.elements["strategy"].value = row.strategy;
         abcForm.elements["handling"].value = row.handling || "";
         abcForm.elements["soothing"].value = row.soothing || "";
-<<<<<<< HEAD
         abcForm.elements["handlingResult"].value = row.handlingResult || "";
-=======
->>>>>>> origin/codespace-shiny-journey-gx5qgw555qvxfvww7
         abcForm.elements["location"].value = row.location;
         abcForm.elements["activity"].value = row.activity;
         abcForm.elements["note"].value = row.note || "";
