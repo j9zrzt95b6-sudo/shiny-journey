@@ -14,17 +14,32 @@ function json(statusCode, payload) {
   });
 }
 
+function resolveRuntimeStore(context) {
+  if (context?.blobs?.getStore) return context.blobs.getStore("smart-care-state");
+  if (context?.netlify?.blobs?.getStore) return context.netlify.blobs.getStore("smart-care-state");
+  if (context?.netlifyBlobs?.getStore) return context.netlifyBlobs.getStore("smart-care-state");
+  return null;
+}
+
 export default async function handler(req, context) {
   if (req.method === "OPTIONS") return json(200, { ok: true });
 
   try {
-    const store = context?.blobs?.getStore
-      ? context.blobs.getStore("smart-care-state")
-      : context?.netlify?.blobs?.getStore
-        ? context.netlify.blobs.getStore("smart-care-state")
-        : getStore("smart-care-state");
-
     const url = new URL(req.url);
+    if (url.searchParams.get("_debug") === "1") {
+      return json(200, {
+        ok: true,
+        contextKeys: Object.keys(context || {}),
+        netlifyKeys: Object.keys(context?.netlify || {}),
+        hasContextBlobs: !!context?.blobs?.getStore,
+        hasNetlifyBlobs: !!context?.netlify?.blobs?.getStore,
+        hasNetlifyBlobsAlt: !!context?.netlifyBlobs?.getStore,
+        hasEnvBlobsToken: !!process.env.NETLIFY_BLOBS_TOKEN
+      });
+    }
+
+    const store = resolveRuntimeStore(context) || getStore("smart-care-state");
+
     const syncKey = (url.searchParams.get("key") || "smart-care-default").trim();
     if (!syncKey) return json(400, { ok: false, error: "missing key" });
 
