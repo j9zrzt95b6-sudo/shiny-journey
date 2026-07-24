@@ -704,6 +704,7 @@
     let cloudPushTimer = null;
     let cloudPullTimer = null;
     let cloudPushInFlight = false;
+    let cloudReconcileInFlight = false;
     let isApplyingCloudState = false;
 
     function getDeviceId() {
@@ -860,8 +861,36 @@
       }, 900);
     }
 
+    async function reconcileCloudState(triggerLabel = "自動") {
+      if (cloudReconcileInFlight) return;
+      cloudReconcileInFlight = true;
+      try {
+        setSyncStatus(`同步中：${triggerLabel}合併...`);
+        await pullCloudState();
+        await pushCloudState();
+        setSyncStatus(`已同步（${nowClock()}）`);
+      } catch (err) {
+        console.warn("雲端合併同步失敗", err);
+        setSyncStatus("雲端合併同步失敗");
+      } finally {
+        cloudReconcileInFlight = false;
+      }
+    }
+
+    function wirePresenceSync() {
+      window.addEventListener("focus", () => {
+        reconcileCloudState("回到頁面");
+      });
+      document.addEventListener("visibilitychange", () => {
+        if (document.visibilityState === "visible") reconcileCloudState("頁面可見");
+      });
+      window.addEventListener("online", () => {
+        reconcileCloudState("網路恢復");
+      });
+    }
+
     async function startCloudSync() {
-      await pullCloudState();
+      await reconcileCloudState("啟動");
       clearInterval(cloudPullTimer);
       cloudPullTimer = setInterval(() => {
         pullCloudState();
@@ -994,6 +1023,7 @@
         if (!hasSavedState) ensureDemoRecords();
         else if (!state.logs) state.logs = [];
         wireStorageSync();
+        wirePresenceSync();
         renderNav();
         wireToolbar();
         fillFilters();
