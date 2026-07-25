@@ -1709,6 +1709,10 @@
       const clientOptions = state.clients.map(c => `<option>${c.name}</option>`).join("");
       const taskOptions = state.tasks.map(t => `<option>${t.name}</option>`).join("");
       const promptOptions = prompts.map(p => `<option>${p}</option>`).join("");
+      if (!state.recordListFilter || typeof state.recordListFilter !== "object") {
+        state.recordListFilter = { startDate: "", endDate: "" };
+      }
+      const recordFilter = state.recordListFilter;
 
       host.innerHTML = `
         <div class="card">
@@ -1735,6 +1739,17 @@
         </div>
         <div class="card">
           <h3>今日工作紀錄列表</h3>
+          <div class="grid-4" style="margin-bottom:8px;">
+            <div class="field"><label>起始日</label><input type="date" id="recordStartDate" value="${recordFilter.startDate || ""}"></div>
+            <div class="field"><label>結束日</label><input type="date" id="recordEndDate" value="${recordFilter.endDate || ""}"></div>
+            <div class="actions" style="align-items:end;">
+              <button class="btn" type="button" id="recordApplyFilterBtn">套用篩選</button>
+              <button class="btn" type="button" id="recordResetFilterBtn">清除篩選</button>
+            </div>
+            <div class="actions" style="align-items:end; justify-content:flex-end;">
+              <button class="btn good" type="button" id="recordExportSelectedBtn">匯出勾選</button>
+            </div>
+          </div>
           <div class="actions" style="margin-bottom:8px;">
             <button class="btn" type="button" id="recordSelectAllBtn">全選</button>
             <button class="btn danger" type="button" id="recordBulkDeleteBtn">刪除勾選</button>
@@ -1747,7 +1762,13 @@
       `;
 
       const table = host.querySelector("#recordTable");
-      const rows = getFilteredRecords();
+      const rows = getFilteredRecords().filter(r => {
+        const day = String(r.date || "");
+        if (!day) return true;
+        if (recordFilter.startDate && day < recordFilter.startDate) return false;
+        if (recordFilter.endDate && day > recordFilter.endDate) return false;
+        return true;
+      });
       table.innerHTML = rows.map(r => `
         <tr>
           <td><input type="checkbox" data-record-select="${r.id}" aria-label="勾選每日紀錄 ${r.clientName} ${r.taskName}"></td>
@@ -1767,9 +1788,83 @@
       const recordSelectAll = host.querySelector("#recordSelectAll");
       const recordSelectAllBtn = host.querySelector("#recordSelectAllBtn");
       const recordBulkDeleteBtn = host.querySelector("#recordBulkDeleteBtn");
+      const recordExportSelectedBtn = host.querySelector("#recordExportSelectedBtn");
+      const recordApplyFilterBtn = host.querySelector("#recordApplyFilterBtn");
+      const recordResetFilterBtn = host.querySelector("#recordResetFilterBtn");
+      const recordStartDateInput = host.querySelector("#recordStartDate");
+      const recordEndDateInput = host.querySelector("#recordEndDate");
 
       function getSelectedRecordIds() {
         return Array.from(table.querySelectorAll("[data-record-select]:checked")).map(cb => cb.dataset.recordSelect);
+      }
+
+      function exportRows(rowsToExport) {
+        if (!rowsToExport.length) {
+          alert("沒有可匯出的紀錄");
+          return;
+        }
+        const mapped = rowsToExport.map(r => ({
+          日期: r.date,
+          班級: r.className,
+          個案: r.clientName,
+          工作: r.taskName,
+          提示: r.prompt,
+          是否完成: r.completed ? "是" : "否",
+          品質: r.quality,
+          代幣給予: r.tokenAward,
+          品質回扣: r.tokenDeduct,
+          行為事件: r.behaviorEvent || "",
+          處理方式: r.handling || "",
+          結果: r.result || "",
+          建立者: r.createdBy || ""
+        }));
+
+        if (window.XLSX && window.XLSX.utils) {
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.json_to_sheet(mapped);
+          XLSX.utils.book_append_sheet(wb, ws, "每日紀錄-勾選");
+          XLSX.writeFile(wb, `smart-care-records-selected-${today()}.xlsx`);
+        } else {
+          const header = Object.keys(mapped[0]);
+          const csv = [
+            header.join(","),
+            ...mapped.map(row => header.map(h => `"${String(row[h] || "").replace(/"/g, '""')}"`).join(","))
+          ].join("\n");
+          const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `smart-care-records-selected-${today()}.csv`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+        log("匯出勾選每日紀錄", `共 ${rowsToExport.length} 筆`);
+      }
+
+      if (recordApplyFilterBtn) {
+        recordApplyFilterBtn.addEventListener("click", () => {
+          state.recordListFilter = {
+            startDate: recordStartDateInput ? recordStartDateInput.value : "",
+            endDate: recordEndDateInput ? recordEndDateInput.value : ""
+          };
+          renderRecords();
+        });
+      }
+
+      if (recordResetFilterBtn) {
+        recordResetFilterBtn.addEventListener("click", () => {
+          state.recordListFilter = { startDate: "", endDate: "" };
+          renderRecords();
+        });
+      }
+
+      if (recordExportSelectedBtn) {
+        recordExportSelectedBtn.addEventListener("click", () => {
+          const selectedIds = getSelectedRecordIds();
+          if (!selectedIds.length) return alert("請先勾選至少一筆每日紀錄");
+          const selectedSet = new Set(selectedIds);
+          const selectedRows = rows.filter(r => selectedSet.has(r.id));
+          exportRows(selectedRows);
+        });
       }
 
       function setAllRecordSelection(checked) {
