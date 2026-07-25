@@ -4969,10 +4969,7 @@
 
     function bindSettingHandlers(host) {
       const classTable = host.querySelector("#classTable");
-      const editableClasses = normalizeRole(state.role) === "teacher"
-        ? [getCurrentTeacherClass()].filter(Boolean)
-        : state.classes;
-      classTable.innerHTML = editableClasses.map(c => `
+      classTable.innerHTML = state.classes.map(c => `
         <tr><td>${c}</td><td><button class="btn" data-class-manage="${c}">管理</button></td></tr>
       `).join("");
 
