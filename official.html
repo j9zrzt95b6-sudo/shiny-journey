@@ -785,20 +785,25 @@
 
     function applyCloudPayload(remotePayload) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
+      const localUpdatedAt = Number(state._meta && state._meta.updatedAt || 0);
+      const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
+      if (!(remoteUpdatedAt > localUpdatedAt)) return false;
+
       const before = JSON.stringify(buildCloudPayload());
+      Object.entries(state).forEach(([key, value]) => {
+        if (key === "_meta") return;
+        if (!Array.isArray(value)) return;
+        state[key] = [];
+      });
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
-        state[key] = mergeArraysForCloud(state[key], value);
+        state[key] = value;
       });
-      const localUpdatedAt = Number(state._meta && state._meta.updatedAt || 0);
-      const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
-      if (remoteUpdatedAt > localUpdatedAt) {
-        state._meta = {
-          ...(state._meta || {}),
-          ...remotePayload._meta
-        };
-      }
+      state._meta = {
+        ...(state._meta || {}),
+        ...remotePayload._meta
+      };
       return before !== JSON.stringify(buildCloudPayload());
     }
 
@@ -4706,6 +4711,14 @@
             </form>
             <table><thead><tr><th>類別</th><th>名稱</th><th>預設代幣</th><th>操作</th></tr></thead><tbody id="taskTable"></tbody></table>
           </div>
+
+          <div class="card" style="grid-column: 1 / -1;">
+            <h3>資料維護</h3>
+            <p class="mini">清除系統預載的範例資料，並立即同步到雲端（不會影響非範例資料）。</p>
+            <div class="actions">
+              <button class="btn danger" type="button" id="purgeDemoDataBtn">清除範例資料（本機 + 雲端）</button>
+            </div>
+          </div>
         </div>
       `;
 
@@ -4870,6 +4883,10 @@
         log("刪除工作項目", `${removed.category}/${removed.name}`);
         renderAll();
       });
+
+      host.querySelector("#purgeDemoDataBtn").addEventListener("click", async e => {
+        await purgeDemoDataAndSync(e.currentTarget);
+      });
     }
 
     function renderLogs() {
@@ -4924,6 +4941,93 @@
           host.querySelector("#mobileContent").innerHTML = panes[btn.dataset.mobileTab];
         });
       });
+    }
+
+    function isDemoClient(client) {
+      if (!client || typeof client !== "object") return false;
+      const name = String(client.name || "").trim();
+      const notes = String(client.notes || "").trim();
+      const owner = String(client.createdBy || client.created_by || "").trim();
+      const demoNames = new Set(["王小明", "王小華", "李○○", "陳○○", "林○○"]);
+      if (notes.includes("示範資料")) return true;
+      return demoNames.has(name) && (!owner || owner === "管理員");
+    }
+
+    function purgeDemoDataFromState() {
+      const demoClientNames = new Set(
+        state.clients
+          .filter(isDemoClient)
+          .map(c => String(c.name || "").trim())
+          .filter(Boolean)
+      );
+      if (!demoClientNames.size) {
+        return { removedClients: 0, removedRows: 0, names: [] };
+      }
+
+      const beforeClients = state.clients.length;
+      state.clients = state.clients.filter(c => !demoClientNames.has(String(c.name || "").trim()));
+
+      let removedRows = 0;
+      Object.entries(state).forEach(([key, value]) => {
+        if (!Array.isArray(value)) return;
+        const before = value.length;
+        state[key] = value.filter(item => {
+          if (!item || typeof item !== "object") return true;
+          const n1 = String(item.clientName || "").trim();
+          const n2 = String(item.client_name || "").trim();
+          if (n1 && demoClientNames.has(n1)) return false;
+          if (n2 && demoClientNames.has(n2)) return false;
+          return true;
+        });
+        removedRows += (before - state[key].length);
+      });
+
+      if (demoClientNames.has(state.selectedClient)) state.selectedClient = "全部個案";
+      if (demoClientNames.has(state.selectedIspForEdit)) state.selectedIspForEdit = null;
+
+      return {
+        removedClients: beforeClients - state.clients.length,
+        removedRows,
+        names: Array.from(demoClientNames)
+      };
+    }
+
+    async function purgeDemoDataAndSync(buttonEl) {
+      if (state.role === "teacher") {
+        alert("教保員不可執行此操作");
+        return;
+      }
+
+      const confirmed = confirm("確定要清除範例資料並同步到雲端嗎？此操作不會影響非範例資料。");
+      if (!confirmed) return;
+
+      const btn = buttonEl || document.getElementById("purgeDemoDataBtn");
+      const originalText = btn ? btn.textContent : "";
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = "清除中...";
+      }
+
+      try {
+        const result = purgeDemoDataFromState();
+        if (!result.removedClients && !result.removedRows) {
+          alert("未找到可清除的範例資料");
+          return;
+        }
+        log("清除範例資料", `個案 ${result.removedClients} 筆，關聯資料 ${result.removedRows} 筆`);
+        renderAll();
+        await pushCloudState();
+        setSyncStatus(`範例資料已清除並同步（${nowClock()}）`);
+        alert(`範例資料清除完成：個案 ${result.removedClients} 筆，關聯資料 ${result.removedRows} 筆`);
+      } catch (err) {
+        console.warn("清除範例資料失敗", err);
+        alert("清除範例資料失敗，請稍後再試");
+      } finally {
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = originalText || "清除範例資料（本機 + 雲端）";
+        }
+      }
     }
 
     function backupData() {
