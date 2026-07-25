@@ -955,6 +955,16 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return false;
         Object.assign(state, parsed);
+        state.role = normalizeRole(state.role);
+        state.teachers = (Array.isArray(state.teachers) ? state.teachers : []).map(t => {
+          if (!t) return null;
+          if (typeof t === "string") {
+            return { id: id(), name: t, className: state.classes[0] || "" };
+          }
+          const name = String(t.name || t.teacherName || "").trim();
+          const className = String(t.className || t.teacherClass || "").trim();
+          return { ...t, id: t.id || id(), name, className };
+        }).filter(Boolean);
         return true;
       } catch (err) {
         console.warn("無法載入本機資料", err);
@@ -980,7 +990,7 @@
       state.logs.unshift({
         id: id(),
         time: new Date().toLocaleString("zh-TW"),
-        role: state.role,
+        role: normalizeRole(state.role),
         actor: getCurrentActor(),
         action,
         detail
@@ -989,28 +999,72 @@
       saveState();
     }
 
+    function normalizeRole(role) {
+      if (role === "admin" || role === "管理員") return "admin";
+      if (role === "supervisor" || role === "督導") return "supervisor";
+      if (role === "teacher" || role === "教保員") return "teacher";
+      return "admin";
+    }
+
+    function getTeacherClassByName(name) {
+      const target = String(name || "").trim();
+      if (!target) return "";
+      const teacher = state.teachers.find(t => String(t.name || "").trim() === target);
+      return teacher ? String(teacher.className || "").trim() : "";
+    }
+
+    function syncTeacherScopeByOperator() {
+      if (normalizeRole(state.role) !== "teacher") return;
+      const teacherClass = getTeacherClassByName(state.currentOperator);
+      if (!teacherClass) {
+        state.selectedClass = "全部班級";
+        state.selectedClient = "全部個案";
+        return;
+      }
+      state.selectedClass = teacherClass;
+      if (state.selectedClient !== "全部個案") {
+        const selected = state.clients.find(c => c.name === state.selectedClient);
+        if (!selected || selected.className !== teacherClass) {
+          state.selectedClient = "全部個案";
+        }
+      }
+    }
+
     function getRoleOperators(role) {
-      if (role === "teacher") {
+      const normalizedRole = normalizeRole(role);
+      if (normalizedRole === "teacher") {
         const names = state.teachers.map(t => t.name).filter(Boolean);
         return names.length ? names : ["教保員"];
       }
-      if (role === "supervisor") return ["督導"];
+      if (normalizedRole === "supervisor") return ["督導"];
       return ["管理員"];
     }
 
     function syncOperatorByRole() {
       const select = document.getElementById("operatorSelect");
       if (!select) return;
+      state.role = normalizeRole(state.role);
       const options = getRoleOperators(state.role);
       if (!options.includes(state.currentOperator)) {
         state.currentOperator = options[0];
       }
       select.innerHTML = options.map(name => `<option>${name}</option>`).join("");
       select.value = state.currentOperator;
+      syncTeacherScopeByOperator();
+    }
+
+    function syncToolbarSelectors() {
+      const roleSelect = document.getElementById("roleSelect");
+      state.role = normalizeRole(state.role);
+      if (roleSelect && roleSelect.value !== state.role) {
+        roleSelect.value = state.role;
+      }
+      syncOperatorByRole();
     }
 
     function canManageOwner(ownerName) {
-      if (state.role === "admin" || state.role === "supervisor") return true;
+      const role = normalizeRole(state.role);
+      if (role === "admin" || role === "supervisor") return true;
       if (!ownerName) return true;
       return ownerName === getCurrentActor();
     }
@@ -1024,13 +1078,14 @@
     }
 
     function can(permission) {
+      const role = normalizeRole(state.role);
       const map = {
         admin: ["all"],
         supervisor: ["view_all", "view_chart", "view_report"],
         teacher: ["record", "edit_own_class", "view_own_chart", "export"]
       };
-      if (state.role === "admin") return true;
-      return map[state.role].includes(permission);
+      if (role === "admin") return true;
+      return map[role].includes(permission);
     }
 
     function init() {
@@ -1203,13 +1258,16 @@
 
     function wireToolbar() {
       document.getElementById("roleSelect").addEventListener("change", e => {
-        state.role = e.target.value;
+        state.role = normalizeRole(e.target.value);
         syncOperatorByRole();
+        const roleSelect = document.getElementById("roleSelect");
+        if (roleSelect) roleSelect.value = state.role;
         log("角色切換", `切換為 ${state.role}`);
         renderAll();
       });
       document.getElementById("operatorSelect").addEventListener("change", e => {
         state.currentOperator = e.target.value;
+        syncTeacherScopeByOperator();
         log("操作者切換", `切換為 ${state.currentOperator}`);
         renderAll();
       });
@@ -1241,8 +1299,25 @@
 
     function fillFilters() {
       const classFilter = document.getElementById("classFilter");
-      classFilter.innerHTML = ["全部班級", ...state.classes].map(c => `<option>${c}</option>`).join("");
-      classFilter.value = state.selectedClass;
+      const role = normalizeRole(state.role);
+      if (role === "teacher") {
+        const teacherClass = getTeacherClassByName(state.currentOperator);
+        if (teacherClass) {
+          state.selectedClass = teacherClass;
+          classFilter.innerHTML = [`<option>${teacherClass}</option>`].join("");
+          classFilter.value = teacherClass;
+        } else {
+          state.selectedClass = "全部班級";
+          classFilter.innerHTML = ["全部班級"].map(c => `<option>${c}</option>`).join("");
+          classFilter.value = state.selectedClass;
+        }
+      } else {
+        classFilter.innerHTML = ["全部班級", ...state.classes].map(c => `<option>${c}</option>`).join("");
+        if (!["全部班級", ...state.classes].includes(state.selectedClass)) {
+          state.selectedClass = "全部班級";
+        }
+        classFilter.value = state.selectedClass;
+      }
       refillClientFilter();
     }
 
@@ -1265,7 +1340,7 @@
     }
 
     function renderAll() {
-      syncOperatorByRole();
+      syncToolbarSelectors();
       renderDashboard();
       renderCases();
       renderRecords();
@@ -2271,7 +2346,7 @@
     }
 
     function getCurrentTeacherClass() {
-      if (state.role !== "teacher") return "";
+      if (normalizeRole(state.role) !== "teacher") return "";
       const me = state.teachers.find(t => t.name === getCurrentActor());
       return me ? me.className : "";
     }
@@ -4828,13 +4903,17 @@
 
     function bindSettingHandlers(host) {
       const classTable = host.querySelector("#classTable");
-      classTable.innerHTML = state.classes.map(c => `
+      const editableClasses = normalizeRole(state.role) === "teacher"
+        ? [getCurrentTeacherClass()].filter(Boolean)
+        : state.classes;
+      classTable.innerHTML = editableClasses.map(c => `
         <tr><td>${c}</td><td><button class="btn" data-class-manage="${c}">管理</button></td></tr>
       `).join("");
 
       const classForm = host.querySelector("#classForm");
       classForm.addEventListener("submit", e => {
         e.preventDefault();
+        if (normalizeRole(state.role) === "teacher") return alert("教保員不可新增班級，請改用「修改名稱」");
         const name = classForm.elements["className"].value.trim();
         if (!name) return;
         if (state.classes.includes(name)) return alert("班級已存在");
@@ -4853,6 +4932,11 @@
 
       host.querySelector("#classRenameBtn").addEventListener("click", () => {
         if (!state.selectedClassForEdit) return alert("請先選擇班級");
+        if (normalizeRole(state.role) === "teacher") {
+          const ownClass = getCurrentTeacherClass();
+          if (!ownClass) return alert("目前教保員尚未綁定班級");
+          if (state.selectedClassForEdit !== ownClass) return alert("教保員僅可編輯自己的班級");
+        }
         const next = classForm.elements["className"].value.trim();
         if (!next) return;
         const idx = state.classes.findIndex(c => c === state.selectedClassForEdit);
@@ -4867,7 +4951,7 @@
       });
 
       host.querySelector("#classDeleteBtn").addEventListener("click", () => {
-        if (state.role === "teacher") return alert("教保員不可刪除班級");
+        if (normalizeRole(state.role) === "teacher") return alert("教保員不可刪除班級");
         if (!state.selectedClassForEdit) return alert("請先選擇班級");
         state.classes = state.classes.filter(c => c !== state.selectedClassForEdit);
         state.clients = state.clients.filter(c => c.className !== state.selectedClassForEdit);
@@ -4953,8 +5037,13 @@
         const fd = new FormData(teacherForm);
         const t = state.teachers.find(x => x.id === state.selectedTeacherForEdit);
         if (!t) return;
+        const prevName = t.name;
         t.name = fd.get("teacherName");
         t.className = fd.get("teacherClass");
+        if (state.currentOperator === prevName) {
+          state.currentOperator = t.name;
+          syncTeacherScopeByOperator();
+        }
         log("更新教保員", `${t.name}/${t.className}`);
         renderAll();
       });
@@ -5134,9 +5223,15 @@
     function renderMobile() {
       const host = document.getElementById("view-mobile");
       const targetClient = state.selectedClient === "全部個案" ? "王小明" : state.selectedClient;
+      const publicEntryUrl = new URL("./", location.href).href;
       host.innerHTML = `
         <div class="card">
           <h3>手機 App 介面預覽</h3>
+          <p class="mini">正式入口（手機 / 平板一致）：<a href="${publicEntryUrl}" target="_blank" rel="noopener">${publicEntryUrl}</a></p>
+          <div class="actions" style="margin-bottom:8px;">
+            <a class="btn" href="${publicEntryUrl}" target="_blank" rel="noopener">手機連結</a>
+            <a class="btn" href="${publicEntryUrl}" target="_blank" rel="noopener">平板連結</a>
+          </div>
           <div class="mobile-shell">
             <div class="mobile-head">${targetClient}｜每日紀錄</div>
             <div class="mobile-body" id="mobileContent">
