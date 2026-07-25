@@ -4957,7 +4957,9 @@
             <p class="mini">清除系統預載的範例資料，並立即同步到雲端（不會影響非範例資料）。</p>
             <div class="actions">
               <button class="btn danger" type="button" id="purgeDemoDataBtn">清除範例資料（本機 + 雲端）</button>
+              <button class="btn" type="button" id="runQaSmokeBtn">執行 QA 快速驗收</button>
             </div>
+            <pre id="qaSmokeResult" class="mini" style="margin-top:8px;white-space:pre-wrap;"></pre>
           </div>
         </div>
       `;
@@ -5267,6 +5269,99 @@
       host.querySelector("#purgeDemoDataBtn").addEventListener("click", async e => {
         await purgeDemoDataAndSync(e.currentTarget);
       });
+
+      const qaBtn = host.querySelector("#runQaSmokeBtn");
+      if (qaBtn) {
+        qaBtn.addEventListener("click", () => {
+          runQaSmokeCheck();
+        });
+      }
+    }
+
+    function runQaSmokeCheck() {
+      const lines = [];
+      const fails = [];
+      const mark = (ok, title, detail = "") => {
+        lines.push(`${ok ? "[OK]" : "[FAIL]"} ${title}${detail ? `: ${detail}` : ""}`);
+        if (!ok) fails.push(title);
+      };
+
+      const roleSelect = document.getElementById("roleSelect");
+      const operatorSelect = document.getElementById("operatorSelect");
+      const classFilter = document.getElementById("classFilter");
+      const clientFilter = document.getElementById("clientFilter");
+      const mobileLinks = Array.from(document.querySelectorAll("#view-mobile a.btn"));
+
+      mark(!!roleSelect, "角色切換欄位存在");
+      mark(!!operatorSelect, "操作者切換欄位存在");
+      mark(!!classFilter, "班級切換欄位存在");
+      mark(!!clientFilter, "個案切換欄位存在");
+
+      const requiredInputs = [
+        document.querySelector("#classForm input[name='className']"),
+        document.querySelector("#teacherForm input[name='teacherName']"),
+        document.querySelector("#taskForm input[name='taskName']")
+      ];
+      const writableCount = requiredInputs.filter(el => !!el && !el.disabled && !el.readOnly).length;
+      mark(writableCount === requiredInputs.length, "主要輸入欄位可輸入", `${writableCount}/${requiredInputs.length}`);
+
+      const teacherNames = getRoleOperators("teacher");
+      mark(teacherNames.length > 0, "教保員名單可用", `${teacherNames.length} 位`);
+
+      const snapshot = {
+        role: state.role,
+        currentOperator: state.currentOperator,
+        selectedClass: state.selectedClass,
+        selectedClient: state.selectedClient,
+        activeView: state.activeView
+      };
+      const prevStorageFlag = isApplyingStorageState;
+      isApplyingStorageState = true;
+
+      try {
+        teacherNames.forEach(name => {
+          state.role = "teacher";
+          state.currentOperator = name;
+          syncToolbarSelectors();
+          fillFilters();
+          const expectedClass = getTeacherClassByName(name);
+          mark(state.currentOperator === name, `切換教保員 ${name} 不跳號`);
+          if (expectedClass) {
+            mark(state.selectedClass === expectedClass, `教保員 ${name} 班級綁定`, `${state.selectedClass}`);
+          }
+        });
+      } catch (err) {
+        mark(false, "角色切換流程執行", String(err && err.message ? err.message : err));
+      } finally {
+        state.role = snapshot.role;
+        state.currentOperator = snapshot.currentOperator;
+        state.selectedClass = snapshot.selectedClass;
+        state.selectedClient = snapshot.selectedClient;
+        state.activeView = snapshot.activeView;
+        isApplyingStorageState = prevStorageFlag;
+        syncToolbarSelectors();
+        fillFilters();
+      }
+
+      renderMobile();
+      const linkHrefs = mobileLinks.length ? mobileLinks.map(a => a.href) : Array.from(document.querySelectorAll("#view-mobile a.btn")).map(a => a.href);
+      const uniqueHrefs = Array.from(new Set(linkHrefs));
+      mark(linkHrefs.length >= 2, "手機/平板連結存在", `${linkHrefs.length} 個`);
+      mark(uniqueHrefs.length === 1, "手機/平板連結一致", uniqueHrefs[0] || "");
+
+      const summary = `QA 快速驗收：${fails.length ? "未通過" : "全部通過"}（${fails.length} 項失敗）`;
+      lines.unshift(summary);
+
+      const output = lines.join("\n");
+      const box = document.getElementById("qaSmokeResult");
+      if (box) box.textContent = output;
+
+      if (fails.length) {
+        alert(`${summary}\n請查看設定頁檢查結果。`);
+      } else {
+        alert(`${summary}\n可進入正式驗收。`);
+      }
+      log("QA 快速驗收", `${fails.length ? "未通過" : "通過"} / 失敗 ${fails.length} 項`);
     }
 
     function renderLogs() {
