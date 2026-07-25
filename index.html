@@ -2682,8 +2682,13 @@
               <button class="btn danger" type="button" id="abcDeleteBtn">刪除</button>
             </div>
           </form>
+          <div class="actions" style="margin-bottom:8px;">
+            <button class="btn" type="button" id="abcSelectAllBtn">全選</button>
+            <button class="btn danger" type="button" id="abcBulkDeleteBtn">刪除勾選</button>
+            <button class="btn good" type="button" id="abcExportSelectedBtn">匯出勾選</button>
+          </div>
           <table>
-            <thead><tr><th>日期時間</th><th>個案</th><th>A/B/C</th><th>地點/活動</th><th>介入</th><th>多媒體</th><th>建立者</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="abcSelectAll" aria-label="全選 ABC 事件"></th><th>日期時間</th><th>個案</th><th>A/B/C</th><th>地點/活動</th><th>介入</th><th>多媒體</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="abcTable"></tbody>
           </table>
         </div>
@@ -2709,8 +2714,14 @@
             <div class="field" style="grid-column: span 2;"><label>關鍵字</label><input id="serviceKeywordFilter" value="${serviceFilter.keyword || ""}" placeholder="輸入關鍵字搜尋"></div>
           </div>
 
+          <div class="actions" style="margin-bottom:8px;">
+            <button class="btn" type="button" id="serviceSelectAllBtn">全選</button>
+            <button class="btn danger" type="button" id="serviceBulkDeleteBtn">刪除勾選</button>
+            <button class="btn good" type="button" id="serviceExportSelectedBtn">匯出勾選</button>
+          </div>
+
           <table>
-            <thead><tr><th>日期</th><th>個案</th><th>分類</th><th>重點</th><th>內容</th><th>建立者</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="serviceSelectAll" aria-label="全選服務紀錄"></th><th>日期</th><th>個案</th><th>分類</th><th>重點</th><th>內容</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="serviceTable"></tbody>
           </table>
         </div>
@@ -2923,6 +2934,7 @@
       const abcTable = host.querySelector("#abcTable");
       abcTable.innerHTML = abcRows.map(r => `
         <tr>
+          <td><input type="checkbox" data-abc-select="${r.id}" aria-label="勾選 ABC 事件 ${r.clientName}"></td>
           <td>${r.date} ${r.time}</td>
           <td>${r.clientName}</td>
           <td>A:${r.antecedent}<br>B:${r.behavior}<br>C:${r.consequence}</td>
@@ -2932,7 +2944,7 @@
           <td>${r.createdBy || "-"}</td>
           <td><button class="btn" data-abc-manage="${r.id}">管理</button></td>
         </tr>
-      `).join("") || "<tr><td colspan='8'>尚無 ABC 事件</td></tr>";
+      `).join("") || "<tr><td colspan='9'>尚無 ABC 事件</td></tr>";
 
       const filteredServices = state.serviceRecords.filter(r => {
         const categoryOk = serviceFilter.category === "全部" || r.category === serviceFilter.category;
@@ -2945,6 +2957,7 @@
       const serviceTable = host.querySelector("#serviceTable");
       serviceTable.innerHTML = filteredServices.slice(0, 80).map(r => `
         <tr>
+          <td><input type="checkbox" data-service-select="${r.id}" aria-label="勾選服務紀錄 ${r.clientName}"></td>
           <td>${r.date}</td>
           <td>${r.clientName}</td>
           <td>${r.category}</td>
@@ -2953,7 +2966,180 @@
           <td>${r.createdBy || "-"}</td>
           <td><button class="btn" data-service-manage="${r.id}">管理</button></td>
         </tr>
-      `).join("") || "<tr><td colspan='7'>尚無服務紀錄</td></tr>";
+      `).join("") || "<tr><td colspan='8'>尚無服務紀錄</td></tr>";
+
+      const abcSelectAll = host.querySelector("#abcSelectAll");
+      const abcSelectAllBtn = host.querySelector("#abcSelectAllBtn");
+      const abcBulkDeleteBtn = host.querySelector("#abcBulkDeleteBtn");
+      const abcExportSelectedBtn = host.querySelector("#abcExportSelectedBtn");
+      const serviceSelectAll = host.querySelector("#serviceSelectAll");
+      const serviceSelectAllBtn = host.querySelector("#serviceSelectAllBtn");
+      const serviceBulkDeleteBtn = host.querySelector("#serviceBulkDeleteBtn");
+      const serviceExportSelectedBtn = host.querySelector("#serviceExportSelectedBtn");
+
+      function exportCareRows(rows, fileBase, sheetName) {
+        if (!rows.length) return alert("沒有可匯出的勾選資料");
+        if (window.XLSX && window.XLSX.utils) {
+          const wb = XLSX.utils.book_new();
+          const ws = XLSX.utils.json_to_sheet(rows);
+          XLSX.utils.book_append_sheet(wb, ws, sheetName);
+          XLSX.writeFile(wb, `${fileBase}-${today()}.xlsx`);
+        } else {
+          const header = Object.keys(rows[0]);
+          const csv = [
+            header.join(","),
+            ...rows.map(row => header.map(h => `"${String(row[h] || "").replace(/"/g, '""')}"`).join(","))
+          ].join("\n");
+          const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+          const a = document.createElement("a");
+          a.href = URL.createObjectURL(blob);
+          a.download = `${fileBase}-${today()}.csv`;
+          a.click();
+          URL.revokeObjectURL(a.href);
+        }
+      }
+
+      function setSelection(tableEl, selector, checked, selectAllEl) {
+        tableEl.querySelectorAll(selector).forEach(cb => {
+          cb.checked = checked;
+        });
+        if (selectAllEl) selectAllEl.checked = checked;
+      }
+
+      function syncSelectionState(tableEl, selector, selectAllEl) {
+        if (!selectAllEl) return;
+        const list = Array.from(tableEl.querySelectorAll(selector));
+        selectAllEl.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      if (abcSelectAll) {
+        abcSelectAll.addEventListener("change", e => {
+          setSelection(abcTable, "[data-abc-select]", e.target.checked, abcSelectAll);
+        });
+      }
+      if (abcSelectAllBtn) {
+        abcSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(abcTable.querySelectorAll("[data-abc-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setSelection(abcTable, "[data-abc-select]", shouldSelectAll, abcSelectAll);
+        });
+      }
+      abcTable.addEventListener("change", e => {
+        const cb = e.target.closest("[data-abc-select]");
+        if (!cb) return;
+        syncSelectionState(abcTable, "[data-abc-select]", abcSelectAll);
+      });
+      if (abcBulkDeleteBtn) {
+        abcBulkDeleteBtn.addEventListener("click", () => {
+          const selectedIds = Array.from(abcTable.querySelectorAll("[data-abc-select]:checked")).map(cb => cb.dataset.abcSelect);
+          if (!selectedIds.length) return alert("請先勾選至少一筆 ABC 事件");
+          if (!confirm(`確定刪除已勾選 ${selectedIds.length} 筆 ABC 事件嗎？`)) return;
+          const selectedSet = new Set(selectedIds);
+          const removed = [];
+          let denied = 0;
+          state.behaviorEvents = state.behaviorEvents.filter(row => {
+            if (!selectedSet.has(row.id)) return true;
+            if (!assertOwnerBeforeDelete(row, "ABC 事件")) {
+              denied += 1;
+              return true;
+            }
+            removed.push(row);
+            return false;
+          });
+          if (!removed.length) return alert("沒有可刪除的勾選 ABC 事件");
+          if (state.selectedBehaviorForEdit && selectedSet.has(state.selectedBehaviorForEdit)) state.selectedBehaviorForEdit = null;
+          log("批次刪除 ABC 事件", `成功 ${removed.length} 筆${denied ? `，權限不足 ${denied} 筆` : ""}`);
+          renderAll();
+        });
+      }
+      if (abcExportSelectedBtn) {
+        abcExportSelectedBtn.addEventListener("click", () => {
+          const selectedIds = Array.from(abcTable.querySelectorAll("[data-abc-select]:checked")).map(cb => cb.dataset.abcSelect);
+          if (!selectedIds.length) return alert("請先勾選至少一筆 ABC 事件");
+          const selectedSet = new Set(selectedIds);
+          const rowsToExport = abcRows
+            .filter(r => selectedSet.has(r.id))
+            .map(r => ({
+              日期: r.date,
+              時間: r.time,
+              個案: r.clientName,
+              前因A: r.antecedent,
+              行為B: r.behavior,
+              結果C: r.consequence,
+              介入策略: r.strategy,
+              處理方式: r.handling || "",
+              安撫方式: r.soothing || "",
+              處理結果: r.handlingResult || "",
+              地點: r.location || "",
+              活動: r.activity || "",
+              恢復分鐘: r.recoverMinutes || 0,
+              說明: r.note || "",
+              建立者: r.createdBy || ""
+            }));
+          exportCareRows(rowsToExport, "smart-care-abc-selected", "ABC勾選");
+          log("匯出勾選 ABC 事件", `共 ${rowsToExport.length} 筆`);
+        });
+      }
+
+      if (serviceSelectAll) {
+        serviceSelectAll.addEventListener("change", e => {
+          setSelection(serviceTable, "[data-service-select]", e.target.checked, serviceSelectAll);
+        });
+      }
+      if (serviceSelectAllBtn) {
+        serviceSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(serviceTable.querySelectorAll("[data-service-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setSelection(serviceTable, "[data-service-select]", shouldSelectAll, serviceSelectAll);
+        });
+      }
+      serviceTable.addEventListener("change", e => {
+        const cb = e.target.closest("[data-service-select]");
+        if (!cb) return;
+        syncSelectionState(serviceTable, "[data-service-select]", serviceSelectAll);
+      });
+      if (serviceBulkDeleteBtn) {
+        serviceBulkDeleteBtn.addEventListener("click", () => {
+          const selectedIds = Array.from(serviceTable.querySelectorAll("[data-service-select]:checked")).map(cb => cb.dataset.serviceSelect);
+          if (!selectedIds.length) return alert("請先勾選至少一筆服務紀錄");
+          if (!confirm(`確定刪除已勾選 ${selectedIds.length} 筆服務紀錄嗎？`)) return;
+          const selectedSet = new Set(selectedIds);
+          const removed = [];
+          let denied = 0;
+          state.serviceRecords = state.serviceRecords.filter(row => {
+            if (!selectedSet.has(row.id)) return true;
+            if (!assertOwnerBeforeDelete(row, "服務紀錄")) {
+              denied += 1;
+              return true;
+            }
+            removed.push(row);
+            return false;
+          });
+          if (!removed.length) return alert("沒有可刪除的勾選服務紀錄");
+          if (state.selectedServiceForEdit && selectedSet.has(state.selectedServiceForEdit)) state.selectedServiceForEdit = null;
+          log("批次刪除服務紀錄", `成功 ${removed.length} 筆${denied ? `，權限不足 ${denied} 筆` : ""}`);
+          renderAll();
+        });
+      }
+      if (serviceExportSelectedBtn) {
+        serviceExportSelectedBtn.addEventListener("click", () => {
+          const selectedIds = Array.from(serviceTable.querySelectorAll("[data-service-select]:checked")).map(cb => cb.dataset.serviceSelect);
+          if (!selectedIds.length) return alert("請先勾選至少一筆服務紀錄");
+          const selectedSet = new Set(selectedIds);
+          const rowsToExport = filteredServices
+            .filter(r => selectedSet.has(r.id))
+            .map(r => ({
+              日期: r.date,
+              個案: r.clientName,
+              分類: r.category,
+              重點: r.title || "",
+              內容: r.detail || "",
+              建立者: r.createdBy || ""
+            }));
+          exportCareRows(rowsToExport, "smart-care-service-selected", "服務勾選");
+          log("匯出勾選服務紀錄", `共 ${rowsToExport.length} 筆`);
+        });
+      }
 
       host.querySelector("#serviceCategoryFilter").addEventListener("change", e => {
         state.serviceFilter.category = e.target.value;
