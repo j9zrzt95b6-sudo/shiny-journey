@@ -711,6 +711,7 @@
     let isApplyingCloudState = false;
     let isApplyingStorageState = false;
     let isProgrammaticOperatorUpdate = false;
+    let safeRenderTimer = null;
 
     function getDeviceId() {
       const cached = localStorage.getItem(DEVICE_KEY);
@@ -728,6 +729,30 @@
 
     function nowClock() {
       return new Date().toLocaleTimeString("zh-TW", { hour12: false });
+    }
+
+    function isUserEditingField() {
+      const el = document.activeElement;
+      if (!el) return false;
+      const tag = String(el.tagName || "").toLowerCase();
+      if (!["input", "textarea", "select"].includes(tag)) return false;
+      if (el.disabled || el.readOnly) return false;
+      return true;
+    }
+
+    function renderAllSafely(reason = "") {
+      if (safeRenderTimer) {
+        clearTimeout(safeRenderTimer);
+        safeRenderTimer = null;
+      }
+      if (!isUserEditingField()) {
+        renderAll();
+        return;
+      }
+      setSyncStatus(`偵測輸入中，稍後同步畫面${reason ? `（${reason}）` : ""}`);
+      safeRenderTimer = setTimeout(() => {
+        renderAllSafely(reason);
+      }, 500);
     }
 
     function updateSyncMeta() {
@@ -835,7 +860,7 @@
           return;
         }
         isApplyingCloudState = true;
-        renderAll();
+        renderAllSafely("雲端更新");
         setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
         console.warn("雲端讀取失敗", err);
@@ -996,7 +1021,7 @@
           state.currentOperator = localOperator;
           state.activeView = localActiveView;
           syncTeacherScopeByOperator();
-          renderAll();
+          renderAllSafely("跨頁同步");
         } catch (err) {
           console.warn("跨頁同步失敗", err);
         } finally {
