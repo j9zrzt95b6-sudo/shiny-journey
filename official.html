@@ -1735,8 +1735,12 @@
         </div>
         <div class="card">
           <h3>今日工作紀錄列表</h3>
+          <div class="actions" style="margin-bottom:8px;">
+            <button class="btn" type="button" id="recordSelectAllBtn">全選</button>
+            <button class="btn danger" type="button" id="recordBulkDeleteBtn">刪除勾選</button>
+          </div>
           <table>
-            <thead><tr><th>日期</th><th>個案</th><th>工作</th><th>提示</th><th>品質</th><th>代幣(+/-)</th><th>建立者</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="recordSelectAll" aria-label="全選每日紀錄"></th><th>日期</th><th>個案</th><th>工作</th><th>提示</th><th>品質</th><th>代幣(+/-)</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="recordTable"></tbody>
           </table>
         </div>
@@ -1746,6 +1750,7 @@
       const rows = getFilteredRecords();
       table.innerHTML = rows.map(r => `
         <tr>
+          <td><input type="checkbox" data-record-select="${r.id}" aria-label="勾選每日紀錄 ${r.clientName} ${r.taskName}"></td>
           <td>${r.date}</td><td>${r.clientName}</td><td>${r.taskName}</td><td>${r.prompt}</td><td>${r.quality}</td>
           <td>${r.tokenAward} / -${r.tokenDeduct}</td>
           <td>${r.createdBy || "-"}</td>
@@ -1758,6 +1763,76 @@
           </td>
         </tr>
       `).join("");
+
+      const recordSelectAll = host.querySelector("#recordSelectAll");
+      const recordSelectAllBtn = host.querySelector("#recordSelectAllBtn");
+      const recordBulkDeleteBtn = host.querySelector("#recordBulkDeleteBtn");
+
+      function getSelectedRecordIds() {
+        return Array.from(table.querySelectorAll("[data-record-select]:checked")).map(cb => cb.dataset.recordSelect);
+      }
+
+      function setAllRecordSelection(checked) {
+        table.querySelectorAll("[data-record-select]").forEach(cb => {
+          cb.checked = checked;
+        });
+        if (recordSelectAll) recordSelectAll.checked = checked;
+      }
+
+      function syncRecordSelectAllState() {
+        const list = Array.from(table.querySelectorAll("[data-record-select]"));
+        if (!recordSelectAll) return;
+        recordSelectAll.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      if (recordSelectAll) {
+        recordSelectAll.addEventListener("change", e => {
+          setAllRecordSelection(e.target.checked);
+        });
+      }
+
+      if (recordSelectAllBtn) {
+        recordSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(table.querySelectorAll("[data-record-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setAllRecordSelection(shouldSelectAll);
+        });
+      }
+
+      table.addEventListener("change", e => {
+        const checkbox = e.target.closest("[data-record-select]");
+        if (!checkbox) return;
+        syncRecordSelectAllState();
+      });
+
+      if (recordBulkDeleteBtn) {
+        recordBulkDeleteBtn.addEventListener("click", () => {
+          const selectedIds = getSelectedRecordIds();
+          if (!selectedIds.length) return alert("請先勾選至少一筆每日紀錄");
+          const confirmed = confirm(`確定刪除已勾選 ${selectedIds.length} 筆每日紀錄嗎？`);
+          if (!confirmed) return;
+
+          const selectedSet = new Set(selectedIds);
+          const removedList = [];
+          let denied = 0;
+          state.records = state.records.filter(rec => {
+            if (!selectedSet.has(rec.id)) return true;
+            if (!assertOwnerBeforeDelete(rec, "每日紀錄")) {
+              denied += 1;
+              return true;
+            }
+            removedList.push(rec);
+            return false;
+          });
+
+          if (!removedList.length) return alert("沒有可刪除的勾選每日紀錄");
+          if (state.selectedRecordForEdit && selectedSet.has(state.selectedRecordForEdit)) {
+            state.selectedRecordForEdit = null;
+          }
+          log("批次刪除每日紀錄", `成功 ${removedList.length} 筆${denied ? `，權限不足 ${denied} 筆` : ""}`);
+          renderAll();
+        });
+      }
 
       const form = host.querySelector("#recordForm");
       form.addEventListener("submit", e => {
