@@ -709,6 +709,7 @@
     let cloudPushInFlight = false;
     let cloudReconcileInFlight = false;
     let isApplyingCloudState = false;
+    let isApplyingStorageState = false;
 
     function getDeviceId() {
       const cached = localStorage.getItem(DEVICE_KEY);
@@ -938,11 +939,11 @@
 
     function saveState() {
       try {
-        if (!isApplyingCloudState) updateSyncMeta();
+        if (!isApplyingCloudState && !isApplyingStorageState) updateSyncMeta();
         const serialized = JSON.stringify(state);
         if (localStorage.getItem(STORAGE_KEY) === serialized) return;
         localStorage.setItem(STORAGE_KEY, serialized);
-        if (!isApplyingCloudState && CLOUD_SYNC_ENABLED) queueCloudPush();
+        if (!isApplyingCloudState && !isApplyingStorageState && CLOUD_SYNC_ENABLED) queueCloudPush();
       } catch (err) {
         console.warn("無法儲存本機資料", err);
       }
@@ -976,12 +977,24 @@
       window.addEventListener("storage", e => {
         if (e.key !== STORAGE_KEY || !e.newValue) return;
         try {
+          const localRole = state.role;
+          const localOperator = state.currentOperator;
+          const localActiveView = state.activeView;
+
           const parsed = JSON.parse(e.newValue);
           if (!parsed || typeof parsed !== "object") return;
+
+          isApplyingStorageState = true;
           Object.assign(state, parsed);
+          state.role = normalizeRole(localRole);
+          state.currentOperator = localOperator;
+          state.activeView = localActiveView;
+          syncTeacherScopeByOperator();
           renderAll();
         } catch (err) {
           console.warn("跨頁同步失敗", err);
+        } finally {
+          isApplyingStorageState = false;
         }
       });
     }
@@ -1004,6 +1017,10 @@
       if (role === "supervisor" || role === "督導") return "supervisor";
       if (role === "teacher" || role === "教保員") return "teacher";
       return "admin";
+    }
+
+    function normalizeOperatorName(name) {
+      return String(name || "").trim();
     }
 
     function getTeacherClassByName(name) {
@@ -1033,7 +1050,11 @@
     function getRoleOperators(role) {
       const normalizedRole = normalizeRole(role);
       if (normalizedRole === "teacher") {
-        const names = state.teachers.map(t => t.name).filter(Boolean);
+        const names = Array.from(new Set(
+          state.teachers
+            .map(t => normalizeOperatorName(t && t.name))
+            .filter(Boolean)
+        ));
         return names.length ? names : ["教保員"];
       }
       if (normalizedRole === "supervisor") return ["督導"];
@@ -1045,11 +1066,18 @@
       if (!select) return;
       state.role = normalizeRole(state.role);
       const options = getRoleOperators(state.role);
-      if (!options.includes(state.currentOperator)) {
-        state.currentOperator = options[0];
+      const current = normalizeOperatorName(state.currentOperator);
+      const matched = options.find(name => normalizeOperatorName(name) === current);
+      state.currentOperator = matched || options[0];
+
+      const optionsHtml = options.map(name => `<option>${name}</option>`).join("");
+      if (select.dataset.optionsHtml !== optionsHtml) {
+        select.innerHTML = optionsHtml;
+        select.dataset.optionsHtml = optionsHtml;
       }
-      select.innerHTML = options.map(name => `<option>${name}</option>`).join("");
-      select.value = state.currentOperator;
+      if (select.value !== state.currentOperator) {
+        select.value = state.currentOperator;
+      }
       syncTeacherScopeByOperator();
     }
 
@@ -4667,9 +4695,9 @@
 
     function getCurrentActor() {
       const options = getRoleOperators(state.role);
-      if (!options.includes(state.currentOperator)) {
-        state.currentOperator = options[0];
-      }
+      const current = normalizeOperatorName(state.currentOperator);
+      const matched = options.find(name => normalizeOperatorName(name) === current);
+      state.currentOperator = matched || options[0];
       return state.currentOperator;
     }
 
