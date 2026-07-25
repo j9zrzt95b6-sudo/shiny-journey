@@ -1354,8 +1354,12 @@
         </div>
         <div class="card">
           <h3>個案列表（管理 / 查看 / 預覽）</h3>
+          <div class="actions" style="margin-bottom:8px;">
+            <button class="btn" type="button" id="caseSelectAllBtn">全選</button>
+            <button class="btn danger" type="button" id="caseBulkDeleteBtn">刪除勾選</button>
+          </div>
           <table>
-            <thead><tr><th>姓名</th><th>班級</th><th>能力</th><th>目標</th><th>建立者</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="caseSelectAll" aria-label="全選個案"></th><th>姓名</th><th>班級</th><th>能力</th><th>目標</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="caseTableBody"></tbody>
           </table>
         </div>
@@ -1364,6 +1368,7 @@
       const tbody = host.querySelector("#caseTableBody");
       tbody.innerHTML = state.clients.map(c => `
         <tr>
+          <td><input type="checkbox" data-case-select="${c.id}" aria-label="勾選個案 ${c.name}"></td>
           <td>${c.name}</td>
           <td>${c.className}</td>
           <td>${c.ability}</td>
@@ -1378,6 +1383,75 @@
           </td>
         </tr>
       `).join("");
+
+      const caseSelectAll = host.querySelector("#caseSelectAll");
+      const caseSelectAllBtn = host.querySelector("#caseSelectAllBtn");
+      const caseBulkDeleteBtn = host.querySelector("#caseBulkDeleteBtn");
+
+      function getSelectedCaseIds() {
+        return Array.from(tbody.querySelectorAll("[data-case-select]:checked")).map(cb => cb.dataset.caseSelect);
+      }
+
+      function setAllCaseSelection(checked) {
+        tbody.querySelectorAll("[data-case-select]").forEach(cb => {
+          cb.checked = checked;
+        });
+        if (caseSelectAll) caseSelectAll.checked = checked;
+      }
+
+      function syncCaseSelectAllState() {
+        const list = Array.from(tbody.querySelectorAll("[data-case-select]"));
+        if (!caseSelectAll) return;
+        caseSelectAll.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      if (caseSelectAll) {
+        caseSelectAll.addEventListener("change", e => {
+          setAllCaseSelection(e.target.checked);
+        });
+      }
+
+      if (caseSelectAllBtn) {
+        caseSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(tbody.querySelectorAll("[data-case-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setAllCaseSelection(shouldSelectAll);
+        });
+      }
+
+      tbody.addEventListener("change", e => {
+        const checkbox = e.target.closest("[data-case-select]");
+        if (!checkbox) return;
+        syncCaseSelectAllState();
+      });
+
+      if (caseBulkDeleteBtn) {
+        caseBulkDeleteBtn.addEventListener("click", () => {
+          const selectedIds = getSelectedCaseIds();
+          if (!selectedIds.length) return alert("請先勾選至少一位個案");
+          const confirmed = confirm(`確定刪除已勾選 ${selectedIds.length} 位個案嗎？`);
+          if (!confirmed) return;
+
+          const selectedSet = new Set(selectedIds);
+          const removedNames = [];
+          let denied = 0;
+          state.clients = state.clients.filter(client => {
+            if (!selectedSet.has(client.id)) return true;
+            if (!assertOwnerBeforeDelete(client, "個案")) {
+              denied += 1;
+              return true;
+            }
+            removedNames.push(client.name);
+            return false;
+          });
+
+          if (!removedNames.length) return alert("沒有可刪除的勾選個案");
+          if (state.selectedCaseId && selectedSet.has(state.selectedCaseId)) state.selectedCaseId = null;
+          if (removedNames.includes(state.selectedClient)) state.selectedClient = "全部個案";
+          log("批次刪除個案", `成功 ${removedNames.length} 位${denied ? `，權限不足 ${denied} 位` : ""}`);
+          renderAll();
+        });
+      }
 
       const form = host.querySelector("#caseForm");
       form.addEventListener("submit", e => {
@@ -4694,7 +4768,11 @@
                 <button class="btn danger" type="button" id="teacherDeleteBtn">刪除</button>
               </div>
             </form>
-            <table><thead><tr><th>姓名</th><th>班級</th><th>操作</th></tr></thead><tbody id="teacherTable"></tbody></table>
+            <div class="actions" style="margin-bottom:8px;">
+              <button class="btn" type="button" id="teacherSelectAllBtn">全選</button>
+              <button class="btn danger" type="button" id="teacherBulkDeleteBtn">刪除勾選</button>
+            </div>
+            <table><thead><tr><th><input type="checkbox" id="teacherSelectAll" aria-label="全選教保員"></th><th>姓名</th><th>班級</th><th>操作</th></tr></thead><tbody id="teacherTable"></tbody></table>
           </div>
 
           <div class="card" style="grid-column: 1 / -1;">
@@ -4709,7 +4787,11 @@
                 <button class="btn danger" type="button" id="taskDeleteBtn">刪除</button>
               </div>
             </form>
-            <table><thead><tr><th>類別</th><th>名稱</th><th>預設代幣</th><th>操作</th></tr></thead><tbody id="taskTable"></tbody></table>
+            <div class="actions" style="margin-bottom:8px;">
+              <button class="btn" type="button" id="taskSelectAllBtn">全選</button>
+              <button class="btn danger" type="button" id="taskBulkDeleteBtn">刪除勾選</button>
+            </div>
+            <table><thead><tr><th><input type="checkbox" id="taskSelectAll" aria-label="全選工作項目"></th><th>類別</th><th>名稱</th><th>預設代幣</th><th>操作</th></tr></thead><tbody id="taskTable"></tbody></table>
           </div>
 
           <div class="card" style="grid-column: 1 / -1;">
@@ -4780,10 +4862,52 @@
       const teacherTable = host.querySelector("#teacherTable");
       teacherTable.innerHTML = state.teachers.map(t => `
         <tr>
+          <td><input type="checkbox" data-teacher-select="${t.id}" aria-label="勾選教保員 ${t.name}"></td>
           <td>${t.name}</td><td>${t.className}</td>
           <td><button class="btn" data-teacher-manage="${t.id}">管理</button></td>
         </tr>
       `).join("");
+
+      const teacherSelectAll = host.querySelector("#teacherSelectAll");
+      const teacherSelectAllBtn = host.querySelector("#teacherSelectAllBtn");
+      const teacherBulkDeleteBtn = host.querySelector("#teacherBulkDeleteBtn");
+
+      function getSelectedTeacherIds() {
+        return Array.from(teacherTable.querySelectorAll("[data-teacher-select]:checked")).map(cb => cb.dataset.teacherSelect);
+      }
+
+      function setAllTeacherSelection(checked) {
+        teacherTable.querySelectorAll("[data-teacher-select]").forEach(cb => {
+          cb.checked = checked;
+        });
+        if (teacherSelectAll) teacherSelectAll.checked = checked;
+      }
+
+      function syncTeacherSelectAllState() {
+        const list = Array.from(teacherTable.querySelectorAll("[data-teacher-select]"));
+        if (!teacherSelectAll) return;
+        teacherSelectAll.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      if (teacherSelectAll) {
+        teacherSelectAll.addEventListener("change", e => {
+          setAllTeacherSelection(e.target.checked);
+        });
+      }
+
+      if (teacherSelectAllBtn) {
+        teacherSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(teacherTable.querySelectorAll("[data-teacher-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setAllTeacherSelection(shouldSelectAll);
+        });
+      }
+
+      teacherTable.addEventListener("change", e => {
+        const checkbox = e.target.closest("[data-teacher-select]");
+        if (!checkbox) return;
+        syncTeacherSelectAllState();
+      });
 
       const teacherForm = host.querySelector("#teacherForm");
       teacherForm.addEventListener("submit", e => {
@@ -4827,13 +4951,76 @@
         renderAll();
       });
 
+      if (teacherBulkDeleteBtn) {
+        teacherBulkDeleteBtn.addEventListener("click", () => {
+          if (state.role === "teacher") return alert("教保員不可刪除教保員帳號");
+          const selectedIds = getSelectedTeacherIds();
+          if (!selectedIds.length) return alert("請先勾選至少一位教保員");
+          const confirmed = confirm(`確定刪除已勾選 ${selectedIds.length} 位教保員嗎？`);
+          if (!confirmed) return;
+
+          const selectedSet = new Set(selectedIds);
+          const before = state.teachers.length;
+          state.teachers = state.teachers.filter(t => !selectedSet.has(t.id));
+          const removedCount = before - state.teachers.length;
+          if (!removedCount) return alert("沒有可刪除的勾選教保員");
+          if (state.selectedTeacherForEdit && selectedSet.has(state.selectedTeacherForEdit)) {
+            state.selectedTeacherForEdit = null;
+          }
+          log("批次刪除教保員", `成功 ${removedCount} 位`);
+          renderAll();
+        });
+      }
+
       const taskTable = host.querySelector("#taskTable");
       taskTable.innerHTML = state.tasks.map(t => `
         <tr>
+          <td><input type="checkbox" data-task-select="${t.id}" aria-label="勾選工作項目 ${t.name}"></td>
           <td>${t.category}</td><td>${t.name}</td><td>${t.defaultToken}</td>
           <td><button class="btn" data-task-manage="${t.id}">管理</button></td>
         </tr>
       `).join("");
+
+      const taskSelectAll = host.querySelector("#taskSelectAll");
+      const taskSelectAllBtn = host.querySelector("#taskSelectAllBtn");
+      const taskBulkDeleteBtn = host.querySelector("#taskBulkDeleteBtn");
+
+      function getSelectedTaskIds() {
+        return Array.from(taskTable.querySelectorAll("[data-task-select]:checked")).map(cb => cb.dataset.taskSelect);
+      }
+
+      function setAllTaskSelection(checked) {
+        taskTable.querySelectorAll("[data-task-select]").forEach(cb => {
+          cb.checked = checked;
+        });
+        if (taskSelectAll) taskSelectAll.checked = checked;
+      }
+
+      function syncTaskSelectAllState() {
+        const list = Array.from(taskTable.querySelectorAll("[data-task-select]"));
+        if (!taskSelectAll) return;
+        taskSelectAll.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      if (taskSelectAll) {
+        taskSelectAll.addEventListener("change", e => {
+          setAllTaskSelection(e.target.checked);
+        });
+      }
+
+      if (taskSelectAllBtn) {
+        taskSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(taskTable.querySelectorAll("[data-task-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setAllTaskSelection(shouldSelectAll);
+        });
+      }
+
+      taskTable.addEventListener("change", e => {
+        const checkbox = e.target.closest("[data-task-select]");
+        if (!checkbox) return;
+        syncTaskSelectAllState();
+      });
 
       const taskForm = host.querySelector("#taskForm");
       taskForm.addEventListener("submit", e => {
@@ -4883,6 +5070,27 @@
         log("刪除工作項目", `${removed.category}/${removed.name}`);
         renderAll();
       });
+
+      if (taskBulkDeleteBtn) {
+        taskBulkDeleteBtn.addEventListener("click", () => {
+          if (state.role === "teacher") return alert("教保員不可刪除工作項目");
+          const selectedIds = getSelectedTaskIds();
+          if (!selectedIds.length) return alert("請先勾選至少一個工作項目");
+          const confirmed = confirm(`確定刪除已勾選 ${selectedIds.length} 個工作項目嗎？`);
+          if (!confirmed) return;
+
+          const selectedSet = new Set(selectedIds);
+          const before = state.tasks.length;
+          state.tasks = state.tasks.filter(t => !selectedSet.has(t.id));
+          const removedCount = before - state.tasks.length;
+          if (!removedCount) return alert("沒有可刪除的勾選工作項目");
+          if (state.selectedTaskForEdit && selectedSet.has(state.selectedTaskForEdit)) {
+            state.selectedTaskForEdit = null;
+          }
+          log("批次刪除工作項目", `成功 ${removedCount} 個`);
+          renderAll();
+        });
+      }
 
       host.querySelector("#purgeDemoDataBtn").addEventListener("click", async e => {
         await purgeDemoDataAndSync(e.currentTarget);
