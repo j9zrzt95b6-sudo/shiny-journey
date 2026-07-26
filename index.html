@@ -363,6 +363,23 @@
       margin-right: 6px;
     }
 
+    .sync-key-badge {
+      margin-top: 6px;
+      display: inline-flex;
+      align-items: center;
+      max-width: 100%;
+      border-radius: 999px;
+      border: 1px solid #d1d5db;
+      padding: 3px 9px;
+      font-size: 12px;
+      font-weight: 700;
+      background: #f3f4f6;
+      color: #334155;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
     .badge {
       display: inline-block;
       border-radius: 999px;
@@ -477,6 +494,7 @@
           <label>雲端同步</label>
           <button class="btn" id="syncNowBtn">立即同步</button>
           <div class="mini" id="syncStatusText">尚未同步</div>
+          <div class="sync-key-badge" id="syncKeyBadge">同步碼：讀取中...</div>
         </div>
       </section>
 
@@ -581,6 +599,7 @@
       behaviorEvents: [],
       serviceRecords: [],
       emotionAnalysisPeriod: "月",
+      lastAnalysisFilterSourceKey: "completion",
       mediaFilter: { clientName: "全部個案", mediaType: "全部" },
       serviceFilter: { category: "全部", keyword: "", clientName: "全部個案" },
       isps: [
@@ -699,15 +718,17 @@
 
     const STORAGE_KEY = "smart-care-state-v1";
     const DEVICE_KEY = "smart-care-device-id-v1";
+    const CLOUD_SYNC_KEY_STORAGE = "smart-care-cloud-sync-key-v1";
+    const CLOUD_SYNC_KEY_PARAM = "syncKey";
+    const DEFAULT_CLOUD_SYNC_KEY = "smart-care-main";
     const CLOUD_SYNC_ENDPOINT = "/.netlify/functions/state";
-    const CLOUD_SYNC_KEY = "smart-care-main";
-    const CLOUD_SYNC_ENABLED = location.hostname === "localhost"
-      || location.hostname === "127.0.0.1"
-      || location.hostname.endsWith(".netlify.app");
+    const CLOUD_SYNC_ENABLED = location.protocol === "http:" || location.protocol === "https:";
+    let cloudSyncKey = resolveCloudSyncKey();
     let cloudPushTimer = null;
     let cloudPullTimer = null;
     let cloudPushInFlight = false;
     let cloudReconcileInFlight = false;
+    let cloudHydrationReady = !CLOUD_SYNC_ENABLED;
     let isApplyingCloudState = false;
     let isApplyingStorageState = false;
     let isProgrammaticOperatorUpdate = false;
@@ -719,6 +740,70 @@
       const next = id();
       localStorage.setItem(DEVICE_KEY, next);
       return next;
+    }
+
+    function sanitizeSyncKey(raw) {
+      const normalized = String(raw || "").trim().toLowerCase().replace(/[^a-z0-9_-]/g, "-").replace(/-{2,}/g, "-");
+      if (!normalized) return "";
+      return normalized.slice(0, 64);
+    }
+
+    function resolveCloudSyncKey() {
+      const fromUrl = sanitizeSyncKey(new URL(location.href).searchParams.get(CLOUD_SYNC_KEY_PARAM));
+      if (fromUrl) {
+        localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fromUrl);
+        return fromUrl;
+      }
+      const fromStorage = sanitizeSyncKey(localStorage.getItem(CLOUD_SYNC_KEY_STORAGE));
+      if (fromStorage) return fromStorage;
+      return DEFAULT_CLOUD_SYNC_KEY;
+    }
+
+    function getCloudSyncUrl() {
+      return `${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(cloudSyncKey)}`;
+    }
+
+    function getShareSyncLink() {
+      const url = new URL(location.href);
+      url.searchParams.set(CLOUD_SYNC_KEY_PARAM, cloudSyncKey);
+      return url.toString();
+    }
+
+    function getSyncKeyHue(value) {
+      const input = String(value || "");
+      let hash = 0;
+      for (let i = 0; i < input.length; i++) {
+        hash = ((hash << 5) - hash) + input.charCodeAt(i);
+        hash |= 0;
+      }
+      return Math.abs(hash) % 360;
+    }
+
+    function renderSyncKeyBadge() {
+      const el = document.getElementById("syncKeyBadge");
+      if (!el) return;
+      const key = cloudSyncKey || DEFAULT_CLOUD_SYNC_KEY;
+      const hue = getSyncKeyHue(key);
+      el.textContent = `同步碼：${key}`;
+      el.style.background = `hsl(${hue} 100% 96%)`;
+      el.style.color = `hsl(${hue} 65% 28%)`;
+      el.style.borderColor = `hsl(${hue} 50% 78%)`;
+    }
+
+    function setCloudSyncKey(nextKey, { updateUrl = false } = {}) {
+      const sanitized = sanitizeSyncKey(nextKey);
+      if (!sanitized) return false;
+      if (cloudSyncKey === sanitized) return true;
+      cloudSyncKey = sanitized;
+      localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, sanitized);
+      if (updateUrl) {
+        const url = new URL(location.href);
+        url.searchParams.set(CLOUD_SYNC_KEY_PARAM, sanitized);
+        history.replaceState(null, "", url.toString());
+      }
+      cloudHydrationReady = !CLOUD_SYNC_ENABLED;
+      renderSyncKeyBadge();
+      return true;
     }
 
     function setSyncStatus(text) {
@@ -840,7 +925,7 @@
     async function pullCloudState() {
       try {
         setSyncStatus("同步中：讀取雲端...");
-        const resp = await fetch(`${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(CLOUD_SYNC_KEY)}`);
+        const resp = await fetch(getCloudSyncUrl());
         if (!resp.ok) {
           setSyncStatus("雲端讀取失敗");
           return;
@@ -875,11 +960,19 @@
       cloudPushInFlight = true;
       try {
         setSyncStatus("同步中：寫入雲端...");
-        await fetch(`${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(CLOUD_SYNC_KEY)}`, {
+        const resp = await fetch(getCloudSyncUrl(), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(buildCloudPayload())
         });
+        if (!resp.ok) {
+          if (resp.status === 409) {
+            await pullCloudState();
+            setSyncStatus("偵測版本衝突，已改用雲端最新資料");
+            return;
+          }
+          throw new Error(`cloud write failed: ${resp.status}`);
+        }
         setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
         console.warn("雲端寫入失敗", err);
@@ -931,6 +1024,7 @@
         return;
       }
       await reconcileCloudState("啟動");
+      cloudHydrationReady = true;
       clearInterval(cloudPullTimer);
       cloudPullTimer = setInterval(() => {
         pullCloudState();
@@ -951,6 +1045,7 @@
       try {
         await pullCloudState();
         await pushCloudState();
+        cloudHydrationReady = true;
         setSyncStatus(`手動同步完成（${nowClock()}）`);
         alert("雲端同步完成");
       } catch (err) {
@@ -969,12 +1064,13 @@
         const baseline = JSON.stringify(state);
         if (before === baseline) return;
 
-        if (!isApplyingCloudState && !isApplyingStorageState) updateSyncMeta();
+        const canMarkCloudMeta = !isApplyingCloudState && !isApplyingStorageState && (!CLOUD_SYNC_ENABLED || cloudHydrationReady);
+        if (canMarkCloudMeta) updateSyncMeta();
         const serialized = JSON.stringify(state);
         if (before === serialized) return;
 
         localStorage.setItem(STORAGE_KEY, serialized);
-        if (!isApplyingCloudState && !isApplyingStorageState && CLOUD_SYNC_ENABLED) queueCloudPush();
+        if (!isApplyingCloudState && !isApplyingStorageState && CLOUD_SYNC_ENABLED && cloudHydrationReady) queueCloudPush();
       } catch (err) {
         console.warn("無法儲存本機資料", err);
       }
@@ -1154,6 +1250,7 @@
     function init() {
       try {
         ensureRuntimeFallbacks();
+        renderSyncKeyBadge();
         const hasSavedState = loadState();
         if (!hasSavedState) ensureDemoRecords();
         else if (!state.logs) state.logs = [];
@@ -4180,6 +4277,7 @@
             <div class="field"><label>目前角色</label><input value="${state.role}" disabled /></div>
             <div class="field"><label>說明</label><input value="${state.analysisLevel}層級圖表皆可獨立篩選" disabled /></div>
             <div class="field"><label>快速切換</label><button class="btn" id="syncToolbarFilterBtn">同步工具列班級/個案</button></div>
+            <div class="field"><label>整頁同步</label><button class="btn" id="syncAllAnalysisFiltersBtn">套用目前圖表班級/個案到全部圖表</button></div>
           </div>
         </div>
 
@@ -4297,8 +4395,10 @@
 
     function ensureAnalysisState() {
       if (!state.analysisLevel) state.analysisLevel = "全機構";
+      if (!state.lastAnalysisFilterSourceKey) state.lastAnalysisFilterSourceKey = "completion";
       if (!state.chartFilters) state.chartFilters = {};
       const keys = ["overview", "completion", "isp", "tokenTrend", "promptLevel", "classToken", "radar", "workCompletion", "taskProgress", "teacher", "ai", "media"];
+      let created = false;
       keys.forEach(key => {
         if (!state.chartFilters[key]) {
           state.chartFilters[key] = {
@@ -4310,9 +4410,65 @@
             endDate: "",
             granularity: "月"
           };
+          created = true;
         }
       });
-      applyLevelDefaults();
+      applyLevelDefaults({ force: created });
+      syncAnalysisFiltersWithToolbar();
+    }
+
+    function syncAnalysisFiltersWithToolbar() {
+      if (!state.chartFilters) return;
+      const toolbarClass = state.selectedClass;
+      const toolbarClient = state.selectedClient;
+      const classOptions = ["全部班級", ...state.classes];
+      Object.keys(state.chartFilters).forEach(key => {
+        const filter = state.chartFilters[key];
+        if (!filter) return;
+
+        if (toolbarClass !== "全部班級" && classOptions.includes(toolbarClass) && filter.className === "全部班級") {
+          filter.className = toolbarClass;
+        }
+
+        let clientList = getClientsByClass(filter.className);
+        if (toolbarClient !== "全部個案" && filter.clientName === "全部個案" && clientList.includes(toolbarClient)) {
+          filter.clientName = toolbarClient;
+        }
+
+        clientList = getClientsByClass(filter.className);
+        if (filter.clientName !== "全部個案" && !clientList.includes(filter.clientName)) {
+          filter.clientName = clientList[0] || "全部個案";
+        }
+      });
+    }
+
+    function applyAnalysisClassClientToAll(sourceKey) {
+      const source = state.chartFilters && state.chartFilters[sourceKey];
+      if (!source) return false;
+      const sourceClass = source.className || "全部班級";
+      const sourceClient = source.clientName || "全部個案";
+      let changed = false;
+
+      Object.keys(state.chartFilters).forEach(key => {
+        const filter = state.chartFilters[key];
+        if (!filter) return;
+        if (filter.className !== sourceClass) {
+          filter.className = sourceClass;
+          changed = true;
+        }
+
+        const clientOptions = getClientsByClass(filter.className);
+        let nextClient = sourceClient;
+        if (nextClient !== "全部個案" && !clientOptions.includes(nextClient)) {
+          nextClient = clientOptions[0] || "全部個案";
+        }
+        if (filter.clientName !== nextClient) {
+          filter.clientName = nextClient;
+          changed = true;
+        }
+      });
+
+      return changed;
     }
 
     function getAllowedAnalysisLevels() {
@@ -4343,7 +4499,7 @@
       document.getElementById("analysisLevelSelect").value = state.analysisLevel;
       document.getElementById("analysisLevelSelect").addEventListener("change", e => {
         state.analysisLevel = e.target.value;
-        applyLevelDefaults();
+        applyLevelDefaults({ force: true });
         renderAnalysis();
       });
 
@@ -4354,13 +4510,43 @@
         log("同步篩選", "分析中心 -> 工具列");
       });
 
+      document.getElementById("syncAllAnalysisFiltersBtn").addEventListener("click", () => {
+        const sourceKey = state.lastAnalysisFilterSourceKey || "completion";
+        const changed = applyAnalysisClassClientToAll(sourceKey);
+        if (changed) {
+          renderAnalysis();
+        }
+        log("整頁篩選同步", `${sourceKey} -> 全部圖表（班級/個案）`);
+      });
+
       document.querySelectorAll("[data-ckey][data-cfield]").forEach(el => {
         el.addEventListener("change", e => {
           const key = e.target.dataset.ckey;
           const field = e.target.dataset.cfield;
-          state.chartFilters[key][field] = e.target.value;
+          const nextValue = e.target.value;
+          if (state.chartFilters[key][field] === nextValue && field !== "className") return;
+          state.chartFilters[key][field] = nextValue;
           if (field === "className") {
-            state.chartFilters[key].clientName = "全部個案";
+            state.lastAnalysisFilterSourceKey = key;
+            const clientOptions = getClientsByClass(nextValue);
+            const currentClient = state.chartFilters[key].clientName;
+            if (state.analysisLevel === "個人") {
+              state.chartFilters[key].clientName = clientOptions.includes(currentClient)
+                ? currentClient
+                : (clientOptions[0] || "全部個案");
+            } else if (currentClient !== "全部個案" && !clientOptions.includes(currentClient)) {
+              state.chartFilters[key].clientName = clientOptions[0] || "全部個案";
+            }
+          }
+          if (field === "clientName" && state.analysisLevel === "個人" && nextValue === "全部個案") {
+            state.lastAnalysisFilterSourceKey = key;
+            const list = getClientsByClass(state.chartFilters[key].className);
+            if (list.length) {
+              state.chartFilters[key].clientName = list[0];
+            }
+          }
+          if (field === "clientName" && nextValue !== "全部個案") {
+            state.lastAnalysisFilterSourceKey = key;
           }
           if (key === "completion") {
             state.chartFilters.overview = { ...state.chartFilters.completion };
@@ -4386,29 +4572,49 @@
       }
     }
 
-    function applyLevelDefaults() {
+    function applyLevelDefaults({ force = false } = {}) {
       const keys = Object.keys(state.chartFilters || {});
+      const classOptions = ["全部班級", ...state.classes];
       if (state.analysisLevel === "班級") {
         const targetClass = state.selectedClass !== "全部班級" ? state.selectedClass : (state.classes[0] || "全部班級");
         keys.forEach(k => {
-          state.chartFilters[k].className = targetClass;
-          state.chartFilters[k].clientName = "全部個案";
+          const filter = state.chartFilters[k];
+          if (force || !classOptions.includes(filter.className) || filter.className === "全部班級") {
+            filter.className = targetClass;
+          }
+          const list = getClientsByClass(filter.className);
+          if (force) {
+            filter.clientName = list[0] || "全部個案";
+          } else if (filter.clientName !== "全部個案" && !list.includes(filter.clientName)) {
+            filter.clientName = list[0] || "全部個案";
+          }
         });
       }
       if (state.analysisLevel === "個人") {
         const targetClient = state.selectedClient !== "全部個案"
           ? state.selectedClient
           : (state.clients[0] ? state.clients[0].name : "全部個案");
-        const c = state.clients.find(x => x.name === targetClient);
         keys.forEach(k => {
-          state.chartFilters[k].clientName = targetClient;
-          if (c) state.chartFilters[k].className = c.className;
+          const filter = state.chartFilters[k];
+          if (force || filter.clientName === "全部個案" || !state.clients.some(x => x.name === filter.clientName)) {
+            filter.clientName = targetClient;
+          }
+          const c = state.clients.find(x => x.name === filter.clientName);
+          if (c) {
+            filter.className = c.className;
+          } else if (force) {
+            filter.className = "全部班級";
+          }
         });
       }
       if (state.analysisLevel === "全機構") {
         keys.forEach(k => {
-          state.chartFilters[k].className = "全部班級";
-          state.chartFilters[k].clientName = "全部個案";
+          const filter = state.chartFilters[k];
+          if (!classOptions.includes(filter.className)) filter.className = "全部班級";
+          const list = getClientsByClass(filter.className);
+          if (filter.clientName !== "全部個案" && !list.includes(filter.clientName)) {
+            filter.clientName = "全部個案";
+          }
         });
       }
     }
@@ -4444,7 +4650,10 @@
       const f = { ...filter };
       if (level === "班級") {
         if (f.className === "全部班級") f.className = state.selectedClass !== "全部班級" ? state.selectedClass : (state.classes[0] || "全部班級");
-        f.clientName = "全部個案";
+        const list = getClientsByClass(f.className);
+        if (f.clientName !== "全部個案" && !list.includes(f.clientName)) {
+          f.clientName = list[0] || "全部個案";
+        }
       }
       if (level === "個人") {
         if (f.className === "全部班級") {
@@ -5309,6 +5518,19 @@
           </div>
 
           <div class="card" style="grid-column: 1 / -1;">
+            <h3>跨裝置同步連結</h3>
+            <p class="mini">手機、平板、電腦請使用相同「同步碼 / 連結」進入，才會同步同一份資料。</p>
+            <form id="syncLinkForm" class="grid-3">
+              <div class="field"><label>同步碼</label><input name="syncKey" value="${cloudSyncKey}" placeholder="例如 center-a" /></div>
+              <div class="actions" style="align-items:end;">
+                <button class="btn primary" type="submit">套用同步碼</button>
+                <button class="btn" type="button" id="copySyncLinkBtn">複製同步連結</button>
+              </div>
+            </form>
+            <div class="mini" id="syncLinkPreview">${getShareSyncLink()}</div>
+          </div>
+
+          <div class="card" style="grid-column: 1 / -1;">
             <h3>資料維護</h3>
             <p class="mini">清除系統預載的範例資料，並立即同步到雲端（不會影響非範例資料）。</p>
             <div class="actions">
@@ -5324,6 +5546,41 @@
     }
 
     function bindSettingHandlers(host) {
+      const syncLinkForm = host.querySelector("#syncLinkForm");
+      const syncLinkPreview = host.querySelector("#syncLinkPreview");
+      const copySyncLinkBtn = host.querySelector("#copySyncLinkBtn");
+
+      if (syncLinkForm && syncLinkPreview) {
+        syncLinkForm.addEventListener("submit", async e => {
+          e.preventDefault();
+          const nextKey = syncLinkForm.elements["syncKey"].value;
+          if (!setCloudSyncKey(nextKey, { updateUrl: true })) {
+            alert("同步碼格式不正確，請使用英數、底線或減號");
+            return;
+          }
+          syncLinkForm.elements["syncKey"].value = cloudSyncKey;
+          syncLinkPreview.textContent = getShareSyncLink();
+          if (CLOUD_SYNC_ENABLED) {
+            setSyncStatus("已切換同步碼，重新同步中...");
+            await reconcileCloudState("切換同步碼");
+          }
+        });
+      }
+
+      if (copySyncLinkBtn) {
+        copySyncLinkBtn.addEventListener("click", async () => {
+          const link = getShareSyncLink();
+          try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              await navigator.clipboard.writeText(link);
+              alert("同步連結已複製");
+              return;
+            }
+          } catch {}
+          prompt("請複製這個同步連結", link);
+        });
+      }
+
       const classTable = host.querySelector("#classTable");
       classTable.innerHTML = state.classes.map(c => `
         <tr><td>${c}</td><td><button class="btn" data-class-manage="${c}">管理</button></td></tr>
