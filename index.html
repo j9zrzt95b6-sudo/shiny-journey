@@ -843,7 +843,7 @@
     function updateSyncMeta() {
       state._meta = {
         ...(state._meta || {}),
-        updatedAt: Date.now(),
+        localUpdatedAt: Date.now(),
         deviceId: getDeviceId()
       };
     }
@@ -900,7 +900,7 @@
 
     function applyCloudPayload(remotePayload) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
-      const localUpdatedAt = Number(state._meta && state._meta.updatedAt || 0);
+      const localUpdatedAt = Number(state._meta && (state._meta.lastSyncedAt || state._meta.updatedAt) || 0);
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
       if (!(remoteUpdatedAt > localUpdatedAt)) return false;
 
@@ -917,7 +917,9 @@
       });
       state._meta = {
         ...(state._meta || {}),
-        ...remotePayload._meta
+        ...remotePayload._meta,
+        lastSyncedAt: remoteUpdatedAt,
+        updatedAt: remoteUpdatedAt
       };
       return before !== JSON.stringify(buildCloudPayload());
     }
@@ -960,10 +962,19 @@
       cloudPushInFlight = true;
       try {
         setSyncStatus("同步中：寫入雲端...");
+        const payload = buildCloudPayload();
+        const baseVersion = Number(payload._meta && (payload._meta.lastSyncedAt || payload._meta.updatedAt) || 0);
+        payload._meta = {
+          ...(payload._meta || {}),
+          baseUpdatedAt: baseVersion,
+          lastSyncedAt: baseVersion,
+          localUpdatedAt: Date.now(),
+          deviceId: getDeviceId()
+        };
         const resp = await fetch(getCloudSyncUrl(), {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(buildCloudPayload())
+          body: JSON.stringify(payload)
         });
         if (!resp.ok) {
           if (resp.status === 409) {
@@ -972,6 +983,20 @@
             return;
           }
           throw new Error(`cloud write failed: ${resp.status}`);
+        }
+        const result = await resp.json();
+        const serverVersion = Number(result && result.updatedAt || 0);
+        if (serverVersion > 0) {
+          isApplyingCloudState = true;
+          state._meta = {
+            ...(state._meta || {}),
+            updatedAt: serverVersion,
+            lastSyncedAt: serverVersion,
+            localUpdatedAt: Date.now(),
+            deviceId: getDeviceId()
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          isApplyingCloudState = false;
         }
         setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {

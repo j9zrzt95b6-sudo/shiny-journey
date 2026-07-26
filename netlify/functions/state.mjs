@@ -26,6 +26,14 @@ function getUpdatedAt(payload) {
   return Number.isFinite(ms) && ms > 0 ? ms : 0;
 }
 
+function getClientBaseUpdatedAt(payload) {
+  const fromLastSyncedAt = Number(payload && payload._meta && payload._meta.lastSyncedAt);
+  if (Number.isFinite(fromLastSyncedAt) && fromLastSyncedAt > 0) return fromLastSyncedAt;
+  const fromBaseUpdatedAt = Number(payload && payload._meta && payload._meta.baseUpdatedAt);
+  if (Number.isFinite(fromBaseUpdatedAt) && fromBaseUpdatedAt > 0) return fromBaseUpdatedAt;
+  return 0;
+}
+
 export default async function handler(req, context) {
   if (req.method === "OPTIONS") return json(200, { ok: true });
 
@@ -73,17 +81,33 @@ export default async function handler(req, context) {
       const existing = await store.get(syncKey, { type: "json" });
       const existingUpdatedAt = getUpdatedAt(existing);
       const incomingUpdatedAt = getUpdatedAt(body);
+      const clientBaseUpdatedAt = getClientBaseUpdatedAt(body);
       const force = url.searchParams.get("force") === "1";
 
-      if (!force && existingUpdatedAt > 0 && incomingUpdatedAt <= 0) {
-        return json(409, { ok: false, error: "missing updatedAt", serverUpdatedAt: existingUpdatedAt });
+      if (!force && existingUpdatedAt > 0 && clientBaseUpdatedAt <= 0) {
+        return json(409, { ok: false, error: "missing base version", serverUpdatedAt: existingUpdatedAt });
       }
-      if (!force && existingUpdatedAt > 0 && incomingUpdatedAt < existingUpdatedAt) {
-        return json(409, { ok: false, error: "stale write", serverUpdatedAt: existingUpdatedAt });
+      if (!force && existingUpdatedAt > 0 && clientBaseUpdatedAt < existingUpdatedAt) {
+        return json(409, { ok: false, error: "stale base version", serverUpdatedAt: existingUpdatedAt });
       }
 
-      await store.setJSON(syncKey, body);
-      return json(200, { ok: true, updatedAt: incomingUpdatedAt || existingUpdatedAt || Date.now() });
+      const serverUpdatedAt = Date.now();
+      const nextBody = {
+        ...body,
+        _meta: {
+          ...(body._meta || {}),
+          updatedAt: serverUpdatedAt,
+          lastSyncedAt: serverUpdatedAt
+        }
+      };
+
+      await store.setJSON(syncKey, nextBody);
+      return json(200, {
+        ok: true,
+        updatedAt: serverUpdatedAt,
+        acceptedClientUpdatedAt: incomingUpdatedAt || 0,
+        previousServerUpdatedAt: existingUpdatedAt
+      });
     }
 
     return json(405, { ok: false, error: "method not allowed" });
