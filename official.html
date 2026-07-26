@@ -4975,27 +4975,46 @@
       aiSummary.textContent = `${period}度情緒事件分析：${improvement}，主要熱點為「${topActivity}」。配合代幣制度與介入策略後，建議持續使用固定流程、視覺提示與正向增強。`;
     }
 
+    function upsertChart(chartKey, canvasId, type, data, options = {}) {
+      const canvas = document.getElementById(canvasId);
+      if (!canvas) return;
+
+      const existing = charts[chartKey];
+      if (existing && existing.canvas === canvas) {
+        existing.config.type = type;
+        existing.data = data;
+        existing.options = options;
+        existing.update("none");
+        return;
+      }
+
+      if (existing) existing.destroy();
+      charts[chartKey] = new Chart(canvas, { type, data, options });
+    }
+
     function buildCompletionTrendChart(recs) {
       const weekly = aggregateLast4Weeks(recs);
       const values = weekly.map(w => w.total ? Math.round((w.completed / w.total) * 100) : 0);
-      if (charts.completionTrend) charts.completionTrend.destroy();
-      charts.completionTrend = new Chart(document.getElementById("completionTrendChart"), {
-        type: "line",
-        data: { labels: ["W1", "W2", "W3", "W4"], datasets: [{ label: "完成率%", data: values, borderColor: "#0ea5e9", tension: 0.3 }] },
-        options: { scales: { y: { min: 0, max: 100 } } }
-      });
+      upsertChart(
+        "completionTrend",
+        "completionTrendChart",
+        "line",
+        { labels: ["W1", "W2", "W3", "W4"], datasets: [{ label: "完成率%", data: values, borderColor: "#0ea5e9", tension: 0.3 }] },
+        { animation: false, scales: { y: { min: 0, max: 100 } } }
+      );
     }
 
     function buildIspTrendChart() {
       const points = state.analysisLevel === "個人"
         ? (state.isps.find(i => i.clientName === normalizeFilterByLevel(state.chartFilters.isp, state.analysisLevel).clientName)?.progress || [0, 0, 0, 0])
         : [65, 71, 78, 84];
-      if (charts.ispTrend) charts.ispTrend.destroy();
-      charts.ispTrend = new Chart(document.getElementById("ispTrendChart"), {
-        type: "line",
-        data: { labels: ["第1週", "第2週", "第3週", "第4週"], datasets: [{ label: "ISP 達成率", data: points, borderColor: "#0a7e8c", backgroundColor: "rgba(10,126,140,0.2)", fill: true, tension: 0.3 }] },
-        options: { scales: { y: { min: 0, max: 100 } } }
-      });
+      upsertChart(
+        "ispTrend",
+        "ispTrendChart",
+        "line",
+        { labels: ["第1週", "第2週", "第3週", "第4週"], datasets: [{ label: "ISP 達成率", data: points, borderColor: "#0a7e8c", backgroundColor: "rgba(10,126,140,0.2)", fill: true, tension: 0.3 }] },
+        { animation: false, scales: { y: { min: 0, max: 100 } } }
+      );
     }
 
     function buildTokenTrendChart(recs) {
@@ -5003,11 +5022,13 @@
       const grouped = groupTokenByPeriod(recs, granularity);
       const labels = Object.keys(grouped);
       const values = Object.values(grouped).map(v => v.total);
-      if (charts.tokenTrend) charts.tokenTrend.destroy();
-      charts.tokenTrend = new Chart(document.getElementById("tokenTrendChart"), {
-        type: "bar",
-        data: { labels, datasets: [{ label: `代幣趨勢（${granularity}）`, data: values, backgroundColor: "#16a34a" }] },
-        options: {
+      upsertChart(
+        "tokenTrend",
+        "tokenTrendChart",
+        "bar",
+        { labels, datasets: [{ label: `代幣趨勢（${granularity}）`, data: values, backgroundColor: "#16a34a" }] },
+        {
+          animation: false,
           onClick: (_, items) => {
             if (!items.length) return;
             const label = labels[items[0].index];
@@ -5016,15 +5037,16 @@
             alert(`${label}\n\n${lines}`);
           }
         }
-      });
+      );
     }
 
     function buildPromptLevelChart(recs) {
       const promptCounts = prompts.map(p => recs.filter(r => r.prompt === p).length);
-      if (charts.promptLevel) charts.promptLevel.destroy();
-      charts.promptLevel = new Chart(document.getElementById("promptLevelChart"), {
-        type: "pie",
-        data: {
+      upsertChart(
+        "promptLevel",
+        "promptLevelChart",
+        "pie",
+        {
           labels: prompts,
           datasets: [{
             data: promptCounts,
@@ -5032,7 +5054,7 @@
             hoverOffset: 0
           }]
         },
-        options: {
+        {
           animation: false,
           events: ["click"],
           transitions: {
@@ -5043,7 +5065,7 @@
             }
           }
         }
-      });
+      );
     }
 
     function buildClassTokenCompareChart(recs) {
@@ -5052,11 +5074,13 @@
       recs.forEach(r => { map[r.className] = (map[r.className] || 0) + (r.tokenAward - r.tokenDeduct); });
       const labels = Object.keys(map).slice(0, 5);
       const values = labels.map(l => map[l]);
-      if (charts.classTokenCompare) charts.classTokenCompare.destroy();
-      charts.classTokenCompare = new Chart(document.getElementById("classTokenCompareChart"), {
-        type: "bar",
-        data: { labels, datasets: [{ label: "班級代幣", data: values, backgroundColor: "#0ea5e9" }] }
-      });
+      upsertChart(
+        "classTokenCompare",
+        "classTokenCompareChart",
+        "bar",
+        { labels, datasets: [{ label: "班級代幣", data: values, backgroundColor: "#0ea5e9" }] },
+        { animation: false }
+      );
       document.getElementById("classTokenCards").innerHTML = labels.map((l, i) => `<div><p>${l}</p><p>${"★".repeat(Math.max(1, Math.min(10, Math.round(values[i] / 80))))}</p><b>${values[i]}枚</b></div>`).join("");
     }
 
@@ -5064,24 +5088,26 @@
       const axes = ["生活自理", "工作能力", "社交能力", "社區適應", "安全意識"];
       const base = recs.length ? Math.min(95, 50 + Math.round(calcCompletionRate(recs) / 2)) : 45;
       const values = axes.map((_, i) => Math.max(40, Math.min(98, base + i * 3 - (i % 2 ? 6 : 0))));
-      if (charts.abilityRadar) charts.abilityRadar.destroy();
-      charts.abilityRadar = new Chart(document.getElementById("abilityRadarChart"), {
-        type: "radar",
-        data: { labels: axes, datasets: [{ label: "能力分布", data: values, borderColor: "#0a7e8c", backgroundColor: "rgba(10,126,140,0.18)" }] },
-        options: { scales: { r: { min: 0, max: 100 } } }
-      });
+      upsertChart(
+        "abilityRadar",
+        "abilityRadarChart",
+        "radar",
+        { labels: axes, datasets: [{ label: "能力分布", data: values, borderColor: "#0a7e8c", backgroundColor: "rgba(10,126,140,0.18)" }] },
+        { animation: false, scales: { r: { min: 0, max: 100 } } }
+      );
     }
 
     function buildTaskProgressChart(recs) {
       const target = normalizeFilterByLevel(state.chartFilters.taskProgress, state.analysisLevel).taskName;
       const task = target === "全部工作" ? "擦桌子" : target;
       const vals = getTaskMonthlyTrend(task, recs);
-      if (charts.taskProgress) charts.taskProgress.destroy();
-      charts.taskProgress = new Chart(document.getElementById("taskProgressChart"), {
-        type: "line",
-        data: { labels: ["1月", "2月", "3月", "4月"], datasets: [{ label: `${task} 完成率`, data: vals, borderColor: "#f59e0b", tension: 0.3 }] },
-        options: { scales: { y: { min: 0, max: 100 } } }
-      });
+      upsertChart(
+        "taskProgress",
+        "taskProgressChart",
+        "line",
+        { labels: ["1月", "2月", "3月", "4月"], datasets: [{ label: `${task} 完成率`, data: vals, borderColor: "#f59e0b", tension: 0.3 }] },
+        { animation: false, scales: { y: { min: 0, max: 100 } } }
+      );
     }
 
     function renderWorkCompletion(recs) {
