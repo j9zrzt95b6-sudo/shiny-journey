@@ -1011,7 +1011,8 @@
       return beforeData !== afterData;
     }
 
-    async function pullCloudState() {
+    async function pullCloudState(options = {}) {
+      const { silentRender = false } = options;
       try {
         setSyncStatus("同步中：讀取雲端...");
         const resp = await fetch(getCloudSyncUrl());
@@ -1033,8 +1034,10 @@
           setSyncStatus(`已同步（${nowClock()}）`);
           return;
         }
-        isApplyingCloudState = true;
-        renderAllSafely("雲端更新");
+        if (!silentRender) {
+          isApplyingCloudState = true;
+          renderAllSafely("雲端更新");
+        }
         setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
         console.warn("雲端讀取失敗", err);
@@ -1146,7 +1149,7 @@
       clearInterval(cloudPullTimer);
       cloudPullTimer = setInterval(() => {
         if (hasPendingLocalChanges()) pushCloudState();
-        else pullCloudState();
+        else pullCloudState({ silentRender: true });
       }, 20000);
     }
 
@@ -1624,20 +1627,53 @@
       });
     }
 
+    function renderActiveView() {
+      switch (state.activeView) {
+        case "dashboard":
+          renderDashboard();
+          break;
+        case "cases":
+          renderCases();
+          break;
+        case "records":
+          renderRecords();
+          break;
+        case "tokens":
+          renderTokens();
+          break;
+        case "emotion":
+          renderEmotion();
+          break;
+        case "media":
+          renderMediaHub();
+          break;
+        case "isp":
+          renderIsp();
+          break;
+        case "analysis":
+          renderAnalysis();
+          break;
+        case "reports":
+          renderReports();
+          break;
+        case "settings":
+          renderSettings();
+          break;
+        case "logs":
+          renderLogs();
+          break;
+        case "mobile":
+          renderMobile();
+          break;
+        default:
+          renderDashboard();
+          break;
+      }
+    }
+
     function renderAll() {
       syncToolbarSelectors();
-      renderDashboard();
-      renderCases();
-      renderRecords();
-      renderTokens();
-      renderEmotion();
-      renderMediaHub();
-      renderIsp();
-      renderAnalysis();
-      renderReports();
-      renderSettings();
-      renderLogs();
-      renderMobile();
+      renderActiveView();
       fillFilters();
       saveState();
     }
