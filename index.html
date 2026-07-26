@@ -723,7 +723,9 @@
     const CLOUD_SYNC_KEY_PARAM = "syncKey";
     const CLOUD_SYNC_BASE_URL_PARAM = "syncApi";
     const DEFAULT_CLOUD_SYNC_KEY = "smart-care-main";
-    const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io") ? "" : "/.netlify/functions/state";
+    const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io")
+      ? "https://smart-care-sync-api.j9zrzt95b6.workers.dev"
+      : "/.netlify/functions/state";
     const CLOUD_SYNC_ENABLED = location.protocol === "http:" || location.protocol === "https:";
     let cloudSyncKey = resolveCloudSyncKey();
     let cloudSyncBaseUrl = resolveCloudSyncBaseUrl();
