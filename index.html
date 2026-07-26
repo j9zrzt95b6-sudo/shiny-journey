@@ -719,11 +719,14 @@
     const STORAGE_KEY = "smart-care-state-v1";
     const DEVICE_KEY = "smart-care-device-id-v1";
     const CLOUD_SYNC_KEY_STORAGE = "smart-care-cloud-sync-key-v1";
+    const CLOUD_SYNC_BASE_URL_STORAGE = "smart-care-cloud-sync-base-url-v1";
     const CLOUD_SYNC_KEY_PARAM = "syncKey";
+    const CLOUD_SYNC_BASE_URL_PARAM = "syncApi";
     const DEFAULT_CLOUD_SYNC_KEY = "smart-care-main";
-    const CLOUD_SYNC_ENDPOINT = "/.netlify/functions/state";
+    const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io") ? "" : "/.netlify/functions/state";
     const CLOUD_SYNC_ENABLED = location.protocol === "http:" || location.protocol === "https:";
     let cloudSyncKey = resolveCloudSyncKey();
+    let cloudSyncBaseUrl = resolveCloudSyncBaseUrl();
     let cloudPushTimer = null;
     let cloudPullTimer = null;
     let cloudPushInFlight = false;
@@ -759,13 +762,48 @@
       return DEFAULT_CLOUD_SYNC_KEY;
     }
 
+    function sanitizeCloudSyncBaseUrl(raw) {
+      const value = String(raw || "").trim();
+      if (!value) return "";
+      if (value.startsWith("/")) return value.replace(/\/+$/, "");
+      try {
+        const parsed = new URL(value);
+        if (parsed.protocol !== "https:") return "";
+        parsed.hash = "";
+        return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+      } catch {
+        return "";
+      }
+    }
+
+    function resolveCloudSyncBaseUrl() {
+      const url = new URL(location.href);
+      const fromUrl = sanitizeCloudSyncBaseUrl(url.searchParams.get(CLOUD_SYNC_BASE_URL_PARAM));
+      if (fromUrl) {
+        localStorage.setItem(CLOUD_SYNC_BASE_URL_STORAGE, fromUrl);
+        return fromUrl;
+      }
+      const fromStorage = sanitizeCloudSyncBaseUrl(localStorage.getItem(CLOUD_SYNC_BASE_URL_STORAGE));
+      if (fromStorage) return fromStorage;
+      return DEFAULT_CLOUD_SYNC_BASE_URL;
+    }
+
+    function isCloudSyncConfigured() {
+      return CLOUD_SYNC_ENABLED && !!cloudSyncBaseUrl;
+    }
+
     function getCloudSyncUrl() {
-      return `${CLOUD_SYNC_ENDPOINT}?key=${encodeURIComponent(cloudSyncKey)}`;
+      if (!cloudSyncBaseUrl) return "";
+      const separator = cloudSyncBaseUrl.includes("?") ? "&" : "?";
+      return `${cloudSyncBaseUrl}${separator}key=${encodeURIComponent(cloudSyncKey)}`;
     }
 
     function getShareSyncLink() {
       const url = new URL(location.href);
       url.searchParams.set(CLOUD_SYNC_KEY_PARAM, cloudSyncKey);
+      if (cloudSyncBaseUrl && !cloudSyncBaseUrl.startsWith("/")) {
+        url.searchParams.set(CLOUD_SYNC_BASE_URL_PARAM, cloudSyncBaseUrl);
+      }
       return url.toString();
     }
 
@@ -799,10 +837,34 @@
       if (updateUrl) {
         const url = new URL(location.href);
         url.searchParams.set(CLOUD_SYNC_KEY_PARAM, sanitized);
+        if (cloudSyncBaseUrl && !cloudSyncBaseUrl.startsWith("/")) {
+          url.searchParams.set(CLOUD_SYNC_BASE_URL_PARAM, cloudSyncBaseUrl);
+        }
         history.replaceState(null, "", url.toString());
       }
-      cloudHydrationReady = !CLOUD_SYNC_ENABLED;
+      cloudHydrationReady = !isCloudSyncConfigured();
       renderSyncKeyBadge();
+      return true;
+    }
+
+    function setCloudSyncBaseUrl(nextBaseUrl, { updateUrl = false } = {}) {
+      const sanitized = sanitizeCloudSyncBaseUrl(nextBaseUrl);
+      if (!sanitized && nextBaseUrl) return false;
+      cloudSyncBaseUrl = sanitized;
+      if (sanitized) localStorage.setItem(CLOUD_SYNC_BASE_URL_STORAGE, sanitized);
+      else localStorage.removeItem(CLOUD_SYNC_BASE_URL_STORAGE);
+
+      if (updateUrl) {
+        const url = new URL(location.href);
+        if (sanitized && !sanitized.startsWith("/")) {
+          url.searchParams.set(CLOUD_SYNC_BASE_URL_PARAM, sanitized);
+        } else {
+          url.searchParams.delete(CLOUD_SYNC_BASE_URL_PARAM);
+        }
+        history.replaceState(null, "", url.toString());
+      }
+
+      cloudHydrationReady = !isCloudSyncConfigured();
       return true;
     }
 
@@ -1008,7 +1070,7 @@
     }
 
     function queueCloudPush() {
-      if (!CLOUD_SYNC_ENABLED) return;
+      if (!isCloudSyncConfigured()) return;
       clearTimeout(cloudPushTimer);
       cloudPushTimer = setTimeout(() => {
         pushCloudState();
@@ -1044,8 +1106,8 @@
     }
 
     async function startCloudSync() {
-      if (!CLOUD_SYNC_ENABLED) {
-        setSyncStatus("雲端同步停用（非 Netlify 部署）");
+      if (!isCloudSyncConfigured()) {
+        setSyncStatus("雲端同步停用（未設定同步 API）");
         return;
       }
       await reconcileCloudState("啟動");
@@ -1057,8 +1119,8 @@
     }
 
     async function manualCloudSync(buttonEl) {
-      if (!CLOUD_SYNC_ENABLED) {
-        alert("此部署平台未啟用 Netlify 雲端同步");
+      if (!isCloudSyncConfigured()) {
+        alert("尚未設定同步 API，請先到系統設定填入雲端同步 API 位址");
         return;
       }
       const btn = buttonEl || document.getElementById("syncNowBtn");
@@ -1089,13 +1151,13 @@
         const baseline = JSON.stringify(state);
         if (before === baseline) return;
 
-        const canMarkCloudMeta = !isApplyingCloudState && !isApplyingStorageState && (!CLOUD_SYNC_ENABLED || cloudHydrationReady);
+        const canMarkCloudMeta = !isApplyingCloudState && !isApplyingStorageState && (!isCloudSyncConfigured() || cloudHydrationReady);
         if (canMarkCloudMeta) updateSyncMeta();
         const serialized = JSON.stringify(state);
         if (before === serialized) return;
 
         localStorage.setItem(STORAGE_KEY, serialized);
-        if (!isApplyingCloudState && !isApplyingStorageState && CLOUD_SYNC_ENABLED && cloudHydrationReady) queueCloudPush();
+        if (!isApplyingCloudState && !isApplyingStorageState && isCloudSyncConfigured() && cloudHydrationReady) queueCloudPush();
       } catch (err) {
         console.warn("無法儲存本機資料", err);
       }
@@ -1474,11 +1536,11 @@
       document.getElementById("syncNowBtn").addEventListener("click", e => {
         manualCloudSync(e.currentTarget);
       });
-      if (!CLOUD_SYNC_ENABLED) {
+      if (!isCloudSyncConfigured()) {
         const syncBtn = document.getElementById("syncNowBtn");
         if (syncBtn) {
           syncBtn.disabled = true;
-          syncBtn.title = "非 Netlify 部署：僅本機儲存";
+          syncBtn.title = "尚未設定同步 API：目前僅本機儲存";
         }
       }
     }
@@ -5547,6 +5609,7 @@
             <p class="mini">手機、平板、電腦請使用相同「同步碼 / 連結」進入，才會同步同一份資料。</p>
             <form id="syncLinkForm" class="grid-3">
               <div class="field"><label>同步碼</label><input name="syncKey" value="${cloudSyncKey}" placeholder="例如 center-a" /></div>
+              <div class="field"><label>同步 API 位址</label><input name="syncApi" value="${cloudSyncBaseUrl}" placeholder="https://your-worker.workers.dev/state" /></div>
               <div class="actions" style="align-items:end;">
                 <button class="btn primary" type="submit">套用同步碼</button>
                 <button class="btn" type="button" id="copySyncLinkBtn">複製同步連結</button>
@@ -5579,15 +5642,29 @@
         syncLinkForm.addEventListener("submit", async e => {
           e.preventDefault();
           const nextKey = syncLinkForm.elements["syncKey"].value;
+          const nextApi = syncLinkForm.elements["syncApi"].value;
           if (!setCloudSyncKey(nextKey, { updateUrl: true })) {
             alert("同步碼格式不正確，請使用英數、底線或減號");
             return;
           }
+          if (!setCloudSyncBaseUrl(nextApi, { updateUrl: true })) {
+            alert("同步 API 位址格式不正確，請填寫 https:// 開頭網址或留空");
+            return;
+          }
           syncLinkForm.elements["syncKey"].value = cloudSyncKey;
+          syncLinkForm.elements["syncApi"].value = cloudSyncBaseUrl;
           syncLinkPreview.textContent = getShareSyncLink();
-          if (CLOUD_SYNC_ENABLED) {
+          const syncBtn = document.getElementById("syncNowBtn");
+          if (syncBtn) {
+            const disabled = !isCloudSyncConfigured();
+            syncBtn.disabled = disabled;
+            syncBtn.title = disabled ? "尚未設定同步 API：目前僅本機儲存" : "";
+          }
+          if (isCloudSyncConfigured()) {
             setSyncStatus("已切換同步碼，重新同步中...");
             await reconcileCloudState("切換同步碼");
+          } else {
+            setSyncStatus("雲端同步停用（未設定同步 API）");
           }
         });
       }

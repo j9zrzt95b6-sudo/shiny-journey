@@ -1,0 +1,7 @@
+name = "smart-care-sync"
+main = "worker.js"
+compatibility_date = "2026-07-26"
+
+[[kv_namespaces]]
+binding = "SMART_CARE_STATE"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
