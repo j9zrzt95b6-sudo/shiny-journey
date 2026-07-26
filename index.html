@@ -5024,7 +5024,25 @@
       if (charts.promptLevel) charts.promptLevel.destroy();
       charts.promptLevel = new Chart(document.getElementById("promptLevelChart"), {
         type: "pie",
-        data: { labels: prompts, datasets: [{ data: promptCounts, backgroundColor: ["#34d399", "#22d3ee", "#60a5fa", "#f59e0b", "#fb7185", "#a78bfa"] }] }
+        data: {
+          labels: prompts,
+          datasets: [{
+            data: promptCounts,
+            backgroundColor: ["#34d399", "#22d3ee", "#60a5fa", "#f59e0b", "#fb7185", "#a78bfa"],
+            hoverOffset: 0
+          }]
+        },
+        options: {
+          animation: false,
+          events: ["click"],
+          transitions: {
+            active: {
+              animation: {
+                duration: 0
+              }
+            }
+          }
+        }
       });
     }
 
