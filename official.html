@@ -880,6 +880,26 @@
       return new Date().toLocaleTimeString("zh-TW", { hour12: false });
     }
 
+    function getLastSyncedAt(meta = state._meta) {
+      return Number(meta && (meta.lastSyncedAt || meta.updatedAt) || 0);
+    }
+
+    function hasPendingLocalChanges() {
+      const syncedAt = getLastSyncedAt(state._meta);
+      const localDirtyAt = Number(state._meta && state._meta.localDirtyAt || 0);
+      return localDirtyAt > syncedAt;
+    }
+
+    function buildDataSnapshot(payload) {
+      const source = payload && typeof payload === "object" ? payload : {};
+      const snapshot = {};
+      Object.entries(source).forEach(([key, value]) => {
+        if (key === "_meta" || !Array.isArray(value)) return;
+        snapshot[key] = value;
+      });
+      return JSON.stringify(snapshot);
+    }
+
     function isUserEditingField() {
       const el = document.activeElement;
       if (!el) return false;
@@ -905,9 +925,11 @@
     }
 
     function updateSyncMeta() {
+      const now = Date.now();
       state._meta = {
         ...(state._meta || {}),
-        localUpdatedAt: Date.now(),
+        localUpdatedAt: now,
+        localDirtyAt: now,
         deviceId: getDeviceId()
       };
     }
@@ -964,16 +986,15 @@
 
     function applyCloudPayload(remotePayload) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
-      const localUpdatedAt = Number(state._meta && (state._meta.lastSyncedAt || state._meta.updatedAt) || 0);
+      const localUpdatedAt = getLastSyncedAt(state._meta);
+      const localDirtyAt = Number(state._meta && state._meta.localDirtyAt || 0);
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
       if (!(remoteUpdatedAt > localUpdatedAt)) return false;
 
-      const before = JSON.stringify(buildCloudPayload());
-      Object.entries(state).forEach(([key, value]) => {
-        if (key === "_meta") return;
-        if (!Array.isArray(value)) return;
-        state[key] = [];
-      });
+      // Do not overwrite local pending edits before they are pushed to cloud.
+      if (localDirtyAt > localUpdatedAt) return false;
+
+      const beforeData = buildDataSnapshot(state);
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
@@ -983,9 +1004,11 @@
         ...(state._meta || {}),
         ...remotePayload._meta,
         lastSyncedAt: remoteUpdatedAt,
-        updatedAt: remoteUpdatedAt
+        updatedAt: remoteUpdatedAt,
+        localDirtyAt: 0
       };
-      return before !== JSON.stringify(buildCloudPayload());
+      const afterData = buildDataSnapshot(state);
+      return beforeData !== afterData;
     }
 
     async function pullCloudState() {
@@ -1057,6 +1080,7 @@
             updatedAt: serverVersion,
             lastSyncedAt: serverVersion,
             localUpdatedAt: Date.now(),
+            localDirtyAt: 0,
             deviceId: getDeviceId()
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
@@ -1084,8 +1108,13 @@
       cloudReconcileInFlight = true;
       try {
         setSyncStatus(`同步中：${triggerLabel}合併...`);
-        await pullCloudState();
-        await pushCloudState();
+        if (hasPendingLocalChanges()) {
+          await pushCloudState();
+          await pullCloudState();
+        } else {
+          await pullCloudState();
+          await pushCloudState();
+        }
         setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
         console.warn("雲端合併同步失敗", err);
@@ -1116,7 +1145,8 @@
       cloudHydrationReady = true;
       clearInterval(cloudPullTimer);
       cloudPullTimer = setInterval(() => {
-        pullCloudState();
+        if (hasPendingLocalChanges()) pushCloudState();
+        else pullCloudState();
       }, 20000);
     }
 
@@ -1132,8 +1162,13 @@
       btn.textContent = "同步中...";
       setSyncStatus("同步中：手動同步...");
       try {
-        await pullCloudState();
-        await pushCloudState();
+        if (hasPendingLocalChanges()) {
+          await pushCloudState();
+          await pullCloudState();
+        } else {
+          await pullCloudState();
+          await pushCloudState();
+        }
         cloudHydrationReady = true;
         setSyncStatus(`手動同步完成（${nowClock()}）`);
         alert("雲端同步完成");
