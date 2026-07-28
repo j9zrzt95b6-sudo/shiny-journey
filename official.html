@@ -770,15 +770,9 @@
         localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fromUrl);
         return fromUrl;
       }
-      const fromStorage = sanitizeSyncKey(localStorage.getItem(CLOUD_SYNC_KEY_STORAGE));
-      if (fromStorage) {
-        if (fromStorage === "smart-care-main" && DEFAULT_CLOUD_SYNC_KEY !== "smart-care-main") {
-          localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, DEFAULT_CLOUD_SYNC_KEY);
-          return DEFAULT_CLOUD_SYNC_KEY;
-        }
-        return fromStorage;
-      }
-      return DEFAULT_CLOUD_SYNC_KEY;
+      const fallbackKey = DEFAULT_CLOUD_SYNC_KEY || "smart-care-main";
+      localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fallbackKey);
+      return fallbackKey;
     }
 
     function sanitizeCloudSyncBaseUrl(raw) {
