@@ -896,14 +896,18 @@
       const el = document.getElementById("syncStatusText");
       if (!el) return;
       el.textContent = text;
-      el.dataset.state = text.includes("雲端") || text.includes("同步") ? "syncing" : "ready";
+      el.dataset.state = /雲端|同步|失敗/.test(text) ? "syncing" : "ready";
     }
 
     function updateCloudSyncBadge() {
       const badge = document.getElementById("syncStatusBadge");
       if (!badge) return;
-      badge.textContent = isCloudSyncConfigured() ? `雲端同步：${cloudSyncKey}` : "雲端同步：未啟用";
+      const label = isCloudSyncConfigured() ? `雲端同步：${cloudSyncKey}` : "雲端同步：未啟用";
+      badge.textContent = label;
       badge.title = isCloudSyncConfigured() ? `同步碼 ${cloudSyncKey}` : "尚未設定同步 API";
+      badge.style.background = isCloudSyncConfigured() ? "#dcfce7" : "#fef3c7";
+      badge.style.color = isCloudSyncConfigured() ? "#166534" : "#92400e";
+      badge.style.borderColor = isCloudSyncConfigured() ? "#86efac" : "#fcd34d";
     }
 
     function nowClock() {
