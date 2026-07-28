@@ -890,7 +890,22 @@
       const el = document.getElementById("syncStatusText");
       if (!el) return;
       el.textContent = text;
-      el.dataset.state = /雲端|同步|失敗/.test(text) ? "syncing" : "ready";
+      if (/失敗/.test(text)) {
+        el.dataset.state = "error";
+        el.style.background = "#fee2e2";
+        el.style.color = "#991b1b";
+        el.style.borderColor = "#fca5a5";
+      } else if (/同步中|讀取|寫入|合併|切換/.test(text)) {
+        el.dataset.state = "syncing";
+        el.style.background = "#fef3c7";
+        el.style.color = "#92400e";
+        el.style.borderColor = "#fcd34d";
+      } else {
+        el.dataset.state = "ready";
+        el.style.background = "#dcfce7";
+        el.style.color = "#166534";
+        el.style.borderColor = "#86efac";
+      }
     }
 
     function updateCloudSyncBadge() {
