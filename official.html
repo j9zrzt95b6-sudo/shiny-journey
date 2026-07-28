@@ -625,6 +625,9 @@
       selectedClient: "全部個案",
       selectedPeriod: "本週",
       selectedWork: "全部工作",
+      logFilterKeyword: "",
+      logStartDate: "",
+      logEndDate: "",
       selectedRecordForEdit: null,
       selectedIspForEdit: null,
       ispFlashClient: "",
@@ -716,6 +719,16 @@
       return `${y}-${m}-${day}`;
     }
 
+    function extractDateKeyFromLogTime(text) {
+      const raw = String(text || "");
+      const m = raw.match(/(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})/);
+      if (!m) return "";
+      const y = m[1];
+      const mm = String(m[2]).padStart(2, "0");
+      const dd = String(m[3]).padStart(2, "0");
+      return `${y}-${mm}-${dd}`;
+    }
+
     const STORAGE_KEY = "smart-care-state-v1";
     const DEVICE_KEY = "smart-care-device-id-v1";
     const CLOUD_SYNC_KEY_STORAGE = "smart-care-cloud-sync-key-v1";
@@ -746,6 +759,86 @@
     let isApplyingStorageState = false;
     let isProgrammaticOperatorUpdate = false;
     let safeRenderTimer = null;
+    let tokenUndoDeleteDraft = null;
+    let tokenUndoDeleteExpiresAt = 0;
+    let tokenUndoDeleteTimer = null;
+    let tokenUndoCountdownTimer = null;
+    let adminDeleteConfirmFailCount = 0;
+    let adminDeleteConfirmLockedUntil = 0;
+    let adminDeleteLockCountdownTimer = null;
+
+    function stopAdminDeleteLockCountdown() {
+      if (adminDeleteLockCountdownTimer) {
+        clearInterval(adminDeleteLockCountdownTimer);
+        adminDeleteLockCountdownTimer = null;
+      }
+    }
+
+    function getAdminDeleteConfirmLockSecondsLeft() {
+      if (adminDeleteConfirmLockedUntil <= Date.now()) return 0;
+      return Math.ceil((adminDeleteConfirmLockedUntil - Date.now()) / 1000);
+    }
+
+    function stopTokenUndoCountdown() {
+      if (tokenUndoCountdownTimer) {
+        clearInterval(tokenUndoCountdownTimer);
+        tokenUndoCountdownTimer = null;
+      }
+    }
+
+    function bindTokenUndoCountdown(button) {
+      stopTokenUndoCountdown();
+      if (!button) return;
+      const tick = () => {
+        if (!button.isConnected) {
+          stopTokenUndoCountdown();
+          return;
+        }
+        const secondsLeft = tokenUndoDeleteExpiresAt > Date.now()
+          ? Math.ceil((tokenUndoDeleteExpiresAt - Date.now()) / 1000)
+          : 0;
+        const canUndo = Array.isArray(tokenUndoDeleteDraft)
+          && tokenUndoDeleteDraft.length > 0
+          && secondsLeft > 0;
+        button.disabled = !canUndo;
+        button.textContent = `復原刪除（${secondsLeft}s）`;
+        if (!canUndo) stopTokenUndoCountdown();
+      };
+      tick();
+      if (Array.isArray(tokenUndoDeleteDraft) && tokenUndoDeleteDraft.length > 0) {
+        tokenUndoCountdownTimer = setInterval(tick, 1000);
+      }
+    }
+
+    function clearTokenUndoDeleteDraft() {
+      if (tokenUndoDeleteTimer) {
+        clearTimeout(tokenUndoDeleteTimer);
+        tokenUndoDeleteTimer = null;
+      }
+      tokenUndoDeleteDraft = null;
+      tokenUndoDeleteExpiresAt = 0;
+      stopTokenUndoCountdown();
+    }
+
+    function setTokenUndoDeleteDraft(requests) {
+      clearTokenUndoDeleteDraft();
+      tokenUndoDeleteDraft = requests.map(req => ({ ...req }));
+      tokenUndoDeleteExpiresAt = Date.now() + 5000;
+      tokenUndoDeleteTimer = setTimeout(() => {
+        clearTokenUndoDeleteDraft();
+        if (state.activeView === "tokens") renderTokens();
+      }, 5000);
+    }
+
+    function consumeTokenUndoDeleteDraft() {
+      if (!Array.isArray(tokenUndoDeleteDraft) || tokenUndoDeleteDraft.length === 0 || Date.now() > tokenUndoDeleteExpiresAt) {
+        clearTokenUndoDeleteDraft();
+        return [];
+      }
+      const snapshot = tokenUndoDeleteDraft.map(req => ({ ...req }));
+      clearTokenUndoDeleteDraft();
+      return snapshot;
+    }
 
     function getDeviceId() {
       const cached = localStorage.getItem(DEVICE_KEY);
@@ -2348,6 +2441,26 @@
         if (requestStatusFilter === "已駁回") return req.status === "rejected";
         return true;
       });
+      const undoDeleteSecondsLeft = tokenUndoDeleteExpiresAt > Date.now()
+        ? Math.ceil((tokenUndoDeleteExpiresAt - Date.now()) / 1000)
+        : 0;
+      const hasUndoDeleteDraft = Array.isArray(tokenUndoDeleteDraft)
+        && tokenUndoDeleteDraft.length > 0
+        && undoDeleteSecondsLeft > 0;
+      const actor = getCurrentActor();
+      const canBatchDeleteRequests = state.role === "teacher" || state.role === "supervisor" || state.role === "admin";
+      const adminDeleteLockSecondsLeft = state.role === "admin" ? getAdminDeleteConfirmLockSecondsLeft() : 0;
+      const deletableUndoRequestIds = new Set(undoRequests.filter(req => {
+        if (state.role === "teacher") return req.requestedBy === actor;
+        return state.role === "supervisor" || state.role === "admin";
+      }).map(req => req.id));
+      const selectedUndoRequestIds = new Set(
+        (Array.isArray(state.tokenUndoSelectedIds) ? state.tokenUndoSelectedIds : [])
+          .filter(id => undoRequests.some(req => req.id === id) && deletableUndoRequestIds.has(id))
+      );
+      state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
+      const visibleDeletableRequests = filteredUndoRequests.filter(req => deletableUndoRequestIds.has(req.id));
+      const selectedVisibleUndoCount = visibleDeletableRequests.filter(req => selectedUndoRequestIds.has(req.id)).length;
       const pendingCount = undoRequests.filter(x => x.status === "pending").length;
       const monthlyStats = state.clients.map(c => {
         const list = state.tokenExchanges.filter(x => x.clientName === c.name && String(x.createdAtIso || "").startsWith(currentMonth));
@@ -2429,9 +2542,15 @@
           <p class="mini">教保員先送申請，督導/管理員於此核准或駁回。</p>
           <div class="grid-4" style="margin-bottom:10px;">
             <div class="field"><label>審核清單篩選</label><select id="requestStatusFilter"><option ${requestStatusFilter === "待審" ? "selected" : ""}>待審</option><option ${requestStatusFilter === "全部" ? "selected" : ""}>全部</option><option ${requestStatusFilter === "已核准" ? "selected" : ""}>已核准</option><option ${requestStatusFilter === "已駁回" ? "selected" : ""}>已駁回</option></select></div>
+            <div class="actions" style="grid-column: span 3; justify-content:flex-end; align-items:end;">
+              <button class="btn" type="button" id="selectPendingRequestsBtn" ${canBatchDeleteRequests && visibleDeletableRequests.length > 0 ? "" : "disabled"}>僅選待審</button>
+              <button class="btn warn" type="button" id="undoDeleteRequestsBtn" ${hasUndoDeleteDraft ? "" : "disabled"}>復原刪除（${undoDeleteSecondsLeft}s）</button>
+              <button class="btn danger" type="button" id="deleteSelectedRequestsBtn" ${canBatchDeleteRequests && selectedVisibleUndoCount > 0 && !(state.role === "admin" && getAdminDeleteConfirmLockSecondsLeft() > 0) ? "" : "disabled"}>${state.role === "admin" && getAdminDeleteConfirmLockSecondsLeft() > 0 ? `鎖定中（${getAdminDeleteConfirmLockSecondsLeft()}s）` : `刪除已勾選（${selectedVisibleUndoCount}）`}</button>
+            </div>
           </div>
+          <p class="mini">${state.role === "teacher" ? "可批次刪除自己提出的申請。" : (canBatchDeleteRequests ? "可使用勾選 + 全選進行批次刪除。" : "僅老師/督導/管理員可批次刪除。")}<span id="adminDeleteLockHint">${adminDeleteLockSecondsLeft > 0 ? ` 管理員確認碼鎖定中，剩餘 ${adminDeleteLockSecondsLeft} 秒。` : ""}</span></p>
           <table>
-            <thead><tr><th>申請時間</th><th>個案</th><th>項目</th><th>扣點</th><th>原因</th><th>申請人</th><th>狀態</th><th>審核資訊</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="requestSelectAll" ${visibleDeletableRequests.length > 0 && selectedVisibleUndoCount === visibleDeletableRequests.length ? "checked" : ""} ${visibleDeletableRequests.length ? "" : "disabled"}></th><th>申請時間</th><th>個案</th><th>項目</th><th>扣點</th><th>原因</th><th>申請人</th><th>狀態</th><th>審核資訊</th><th>操作</th></tr></thead>
             <tbody id="requestTable"></tbody>
           </table>
         </div>
@@ -2554,6 +2673,41 @@
       const exchangeStartDate = host.querySelector("#exchangeStartDate");
       const exchangeEndDate = host.querySelector("#exchangeEndDate");
       const requestStatusFilterSelect = host.querySelector("#requestStatusFilter");
+      const requestSelectAll = host.querySelector("#requestSelectAll");
+      const selectPendingRequestsBtn = host.querySelector("#selectPendingRequestsBtn");
+      const undoDeleteRequestsBtn = host.querySelector("#undoDeleteRequestsBtn");
+      const deleteSelectedRequestsBtn = host.querySelector("#deleteSelectedRequestsBtn");
+      const adminDeleteLockHint = host.querySelector("#adminDeleteLockHint");
+
+      bindTokenUndoCountdown(undoDeleteRequestsBtn);
+      stopAdminDeleteLockCountdown();
+
+      const syncDeleteButtonState = () => {
+        const selectedCount = visibleDeletableRequests.filter(req => selectedUndoRequestIds.has(req.id)).length;
+        const lockSecondsLeft = state.role === "admin" ? getAdminDeleteConfirmLockSecondsLeft() : 0;
+        if (lockSecondsLeft > 0) {
+          deleteSelectedRequestsBtn.textContent = `鎖定中（${lockSecondsLeft}s）`;
+          deleteSelectedRequestsBtn.disabled = true;
+          if (adminDeleteLockHint) adminDeleteLockHint.textContent = ` 管理員確認碼鎖定中，剩餘 ${lockSecondsLeft} 秒。`;
+          return;
+        }
+        deleteSelectedRequestsBtn.textContent = `刪除已勾選（${selectedCount}）`;
+        deleteSelectedRequestsBtn.disabled = !(canBatchDeleteRequests && selectedCount > 0);
+        if (adminDeleteLockHint) adminDeleteLockHint.textContent = "";
+      };
+      syncDeleteButtonState();
+      if (state.role === "admin" && getAdminDeleteConfirmLockSecondsLeft() > 0) {
+        adminDeleteLockCountdownTimer = setInterval(() => {
+          if (!deleteSelectedRequestsBtn.isConnected) {
+            stopAdminDeleteLockCountdown();
+            return;
+          }
+          syncDeleteButtonState();
+          if (getAdminDeleteConfirmLockSecondsLeft() <= 0) {
+            stopAdminDeleteLockCountdown();
+          }
+        }, 1000);
+      }
 
       exportExchangeExcelBtn.addEventListener("click", exportTokenExchangesExcel);
 
@@ -2575,6 +2729,88 @@
       });
       requestStatusFilterSelect.addEventListener("change", () => {
         state.tokenUndoRequestStatusFilter = requestStatusFilterSelect.value;
+        renderTokens();
+      });
+      requestSelectAll.addEventListener("change", () => {
+        if (requestSelectAll.checked) {
+          visibleDeletableRequests.forEach(req => selectedUndoRequestIds.add(req.id));
+        } else {
+          visibleDeletableRequests.forEach(req => selectedUndoRequestIds.delete(req.id));
+        }
+        state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
+        renderTokens();
+      });
+      selectPendingRequestsBtn.addEventListener("click", () => {
+        if (!canBatchDeleteRequests) {
+          return alert("僅老師/督導/管理員可使用此功能");
+        }
+        visibleDeletableRequests.forEach(req => selectedUndoRequestIds.delete(req.id));
+        visibleDeletableRequests.forEach(req => {
+          if (req.status === "pending") selectedUndoRequestIds.add(req.id);
+        });
+        state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
+        renderTokens();
+      });
+      undoDeleteRequestsBtn.addEventListener("click", () => {
+        const restored = consumeTokenUndoDeleteDraft();
+        if (!restored.length) return alert("沒有可復原的刪除資料，或已逾時");
+        const existingIds = new Set((state.tokenUndoRequests || []).map(req => req.id));
+        const merged = restored.filter(req => !existingIds.has(req.id)).concat(state.tokenUndoRequests || []);
+        state.tokenUndoRequests = merged;
+        log("復原撤銷申請", `已復原 ${restored.length} 筆`);
+        renderTokens();
+      });
+      deleteSelectedRequestsBtn.addEventListener("click", () => {
+        if (!canBatchDeleteRequests) {
+          return alert("僅老師/督導/管理員可批次刪除");
+        }
+        const selectedIds = new Set(Array.isArray(state.tokenUndoSelectedIds) ? state.tokenUndoSelectedIds : []);
+        if (!selectedIds.size) return alert("請先勾選要刪除的申請");
+        const selectedRequests = (state.tokenUndoRequests || []).filter(req => selectedIds.has(req.id) && deletableUndoRequestIds.has(req.id));
+        if (!selectedRequests.length) {
+          state.tokenUndoSelectedIds = [];
+          return renderTokens();
+        }
+        const pending = selectedRequests.filter(req => req.status === "pending").length;
+        const approved = selectedRequests.filter(req => req.status === "approved").length;
+        const rejected = selectedRequests.filter(req => req.status === "rejected").length;
+        const previewLines = selectedRequests.slice(0, 5).map((req, idx) => {
+          const statusText = req.status === "pending" ? "待審" : (req.status === "approved" ? "已核准" : "已駁回");
+          return `${idx + 1}. ${req.clientName} / ${req.rewardItem} / ${req.cost} / ${statusText}`;
+        }).join("\\n");
+        const remainCount = Math.max(0, selectedRequests.length - 5);
+        const previewTail = remainCount > 0 ? `\\n...還有 ${remainCount} 筆` : "";
+        const yes = confirm(`確定刪除已勾選申請？\n共 ${selectedRequests.length} 筆（待審 ${pending} / 已核准 ${approved} / 已駁回 ${rejected}）\n\n預覽：\n${previewLines}${previewTail}`);
+        if (!yes) return;
+        if (state.role === "admin") {
+          const lockSecondsLeft = getAdminDeleteConfirmLockSecondsLeft();
+          if (lockSecondsLeft > 0) {
+            log("刪除確認碼鎖定", `管理員 ${getCurrentActor()} 仍在鎖定中，剩餘 ${lockSecondsLeft} 秒`);
+            return alert(`確認碼已鎖定，請 ${lockSecondsLeft} 秒後再試`);
+          }
+          const code = prompt("管理員二次確認：請輸入 DELETE 才能繼續刪除", "");
+          if (String(code || "").trim() !== "DELETE") {
+            adminDeleteConfirmFailCount += 1;
+            log("刪除確認碼錯誤", `管理員 ${getCurrentActor()} 第 ${adminDeleteConfirmFailCount} 次輸入錯誤`);
+            if (adminDeleteConfirmFailCount >= 3) {
+              adminDeleteConfirmFailCount = 0;
+              adminDeleteConfirmLockedUntil = Date.now() + 30000;
+              log("刪除確認碼鎖定", `管理員 ${getCurrentActor()} 連續輸錯 3 次，鎖定 30 秒`);
+              renderTokens();
+              return alert("確認碼連續錯誤 3 次，已鎖定 30 秒");
+            }
+            const remain = 3 - adminDeleteConfirmFailCount;
+            return alert(`確認碼錯誤，已取消刪除（再錯 ${remain} 次將鎖定 30 秒）`);
+          }
+          log("刪除確認碼驗證", `管理員 ${getCurrentActor()} 驗證成功`);
+          adminDeleteConfirmFailCount = 0;
+          adminDeleteConfirmLockedUntil = 0;
+        }
+        setTokenUndoDeleteDraft(selectedRequests);
+        const deletableSelectedIds = new Set(selectedRequests.map(req => req.id));
+        state.tokenUndoRequests = (state.tokenUndoRequests || []).filter(req => !deletableSelectedIds.has(req.id));
+        state.tokenUndoSelectedIds = [];
+        log("刪除撤銷申請", `共 ${selectedRequests.length} 筆（待審 ${pending} / 已核准 ${approved} / 已駁回 ${rejected}）`);
         renderTokens();
       });
 
@@ -2687,8 +2923,10 @@
         const statusText = req.status === "pending" ? "待審" : (req.status === "approved" ? "已核准" : "已駁回");
         const reviewInfo = req.reviewedAt ? `${req.reviewedAt} / ${req.reviewedBy}${req.reviewComment ? `<br><span class="mini">${req.reviewComment}</span>` : ""}` : "-";
         const canReview = req.status === "pending" && (state.role === "supervisor" || state.role === "admin") && req.requestedBy !== getCurrentActor();
+        const canDeleteThisRequest = deletableUndoRequestIds.has(req.id);
         return `
           <tr>
+            <td><input type="checkbox" data-request-select="${req.id}" ${selectedUndoRequestIds.has(req.id) ? "checked" : ""} ${canDeleteThisRequest ? "" : "disabled"}></td>
             <td>${req.createdAt}</td>
             <td>${req.clientName}</td>
             <td>${req.rewardItem}</td>
@@ -2705,7 +2943,21 @@
             </td>
           </tr>
         `;
-      }).join("") || "<tr><td colspan='9'>尚無撤銷申請</td></tr>";
+      }).join("") || "<tr><td colspan='10'>尚無撤銷申請</td></tr>";
+
+      requestTable.querySelectorAll("[data-request-select]").forEach(input => {
+        input.addEventListener("change", () => {
+          const requestId = input.dataset.requestSelect;
+          if (!requestId) return;
+          if (input.checked) selectedUndoRequestIds.add(requestId);
+          else selectedUndoRequestIds.delete(requestId);
+          state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
+          const visibleIds = visibleDeletableRequests.map(req => req.id);
+          const allVisibleChecked = visibleIds.length > 0 && visibleIds.every(id => selectedUndoRequestIds.has(id));
+          requestSelectAll.checked = allVisibleChecked;
+          syncDeleteButtonState();
+        });
+      });
 
       requestTable.addEventListener("click", e => {
         const btn = e.target.closest("button");
@@ -6230,17 +6482,120 @@
 
     function renderLogs() {
       const host = document.getElementById("view-logs");
+      const quickKeywords = ["刪除確認碼", "鎖定", "核准", "駁回"];
+      const keyword = String(state.logFilterKeyword || "").trim().toLowerCase();
+      const startDate = String(state.logStartDate || "");
+      const endDate = String(state.logEndDate || "");
+      const todayKey = today();
+      const last7StartKey = isoDateFromMs(Date.now() - (6 * 24 * 60 * 60 * 1000));
+      const monthStartKey = `${todayKey.slice(0, 7)}-01`;
+      const activeDatePreset = startDate === todayKey && endDate === todayKey
+        ? "today"
+        : (startDate === last7StartKey && endDate === todayKey
+          ? "last7"
+          : (startDate === monthStartKey && endDate === todayKey ? "month" : ""));
+      const filteredLogs = state.logs.filter(l => {
+        const haystack = [l.time, l.role, l.actor, l.action, l.detail]
+          .map(v => String(v || "").toLowerCase())
+          .join(" ");
+        if (keyword && !haystack.includes(keyword)) return false;
+        if (!startDate && !endDate) return true;
+        const dateKey = extractDateKeyFromLogTime(l.time);
+        if (!dateKey) return false;
+        if (startDate && dateKey < startDate) return false;
+        if (endDate && dateKey > endDate) return false;
+        return true;
+      });
+      const dateFilterLabel = (startDate || endDate)
+        ? `（日期：${startDate || "不限"} ~ ${endDate || "不限"}）`
+        : "";
       host.innerHTML = `
         <div class="card">
           <h3>操作紀錄（按鍵已可操作）</h3>
+          <div class="grid-4" style="margin-bottom:10px;">
+            <div class="field" style="grid-column: span 3;"><label>關鍵字快速篩選</label><input id="logKeywordInput" placeholder="例如：刪除確認碼、鎖定、核准" value="${String(state.logFilterKeyword || "").replace(/"/g, "&quot;")}" /></div>
+            <div class="actions" style="align-items:end;"><button class="btn" type="button" id="clearLogKeywordBtn">清除</button></div>
+          </div>
+          <div class="grid-4" style="margin-bottom:10px;">
+            <div class="field"><label>起始日</label><input id="logStartDateInput" type="date" value="${startDate}" /></div>
+            <div class="field"><label>結束日</label><input id="logEndDateInput" type="date" value="${endDate}" /></div>
+            <div class="actions" style="grid-column: span 2; align-items:end;"><button class="btn" type="button" id="clearLogDateBtn">清除日期</button></div>
+          </div>
+          <div class="actions" style="margin-bottom:10px;">
+            <button class="btn ${activeDatePreset === "today" ? "primary" : ""}" type="button" data-log-date-preset="today">今天</button>
+            <button class="btn ${activeDatePreset === "last7" ? "primary" : ""}" type="button" data-log-date-preset="last7">近 7 天</button>
+            <button class="btn ${activeDatePreset === "month" ? "primary" : ""}" type="button" data-log-date-preset="month">本月</button>
+          </div>
+          <div class="actions" style="margin-bottom:10px;">
+            ${quickKeywords.map(k => `<button class="btn ${String(state.logFilterKeyword || "").trim() === k ? "primary" : ""}" type="button" data-log-keyword="${k}">${k}</button>`).join("")}
+          </div>
+          <p class="mini">共 ${filteredLogs.length} 筆${keyword ? `（關鍵字：${state.logFilterKeyword}）` : ""}${dateFilterLabel}</p>
           <table>
             <thead><tr><th>時間</th><th>角色</th><th>操作者</th><th>動作</th><th>內容</th></tr></thead>
             <tbody>
-              ${state.logs.map(l => `<tr><td>${l.time}</td><td>${l.role}</td><td>${l.actor || "-"}</td><td>${l.action}</td><td>${l.detail}</td></tr>`).join("")}
+              ${filteredLogs.map(l => `<tr><td>${l.time}</td><td>${l.role}</td><td>${l.actor || "-"}</td><td>${l.action}</td><td>${l.detail}</td></tr>`).join("") || "<tr><td colspan='5'>查無符合關鍵字的紀錄</td></tr>"}
             </tbody>
           </table>
         </div>
       `;
+
+      const logKeywordInput = host.querySelector("#logKeywordInput");
+      const clearLogKeywordBtn = host.querySelector("#clearLogKeywordBtn");
+      const logStartDateInput = host.querySelector("#logStartDateInput");
+      const logEndDateInput = host.querySelector("#logEndDateInput");
+      const clearLogDateBtn = host.querySelector("#clearLogDateBtn");
+
+      logKeywordInput.addEventListener("input", () => {
+        state.logFilterKeyword = logKeywordInput.value;
+        renderLogs();
+      });
+
+      logStartDateInput.addEventListener("change", () => {
+        state.logStartDate = logStartDateInput.value;
+        renderLogs();
+      });
+
+      logEndDateInput.addEventListener("change", () => {
+        state.logEndDate = logEndDateInput.value;
+        renderLogs();
+      });
+
+      host.querySelectorAll("[data-log-keyword]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          state.logFilterKeyword = btn.dataset.logKeyword || "";
+          renderLogs();
+        });
+      });
+
+      host.querySelectorAll("[data-log-date-preset]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const preset = btn.dataset.logDatePreset;
+          if (preset === "today") {
+            state.logStartDate = todayKey;
+            state.logEndDate = todayKey;
+          } else if (preset === "last7") {
+            state.logStartDate = last7StartKey;
+            state.logEndDate = todayKey;
+          } else if (preset === "month") {
+            state.logStartDate = monthStartKey;
+            state.logEndDate = todayKey;
+          }
+          renderLogs();
+        });
+      });
+
+      clearLogKeywordBtn.addEventListener("click", () => {
+        if (!state.logFilterKeyword) return;
+        state.logFilterKeyword = "";
+        renderLogs();
+      });
+
+      clearLogDateBtn.addEventListener("click", () => {
+        if (!state.logStartDate && !state.logEndDate) return;
+        state.logStartDate = "";
+        state.logEndDate = "";
+        renderLogs();
+      });
     }
 
     function renderMobile() {
