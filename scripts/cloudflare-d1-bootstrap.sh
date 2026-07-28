@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 CF_DIR="$ROOT_DIR/cloudflare"
 CFG_FILE="$CF_DIR/wrangler.toml"
+SCHEMA_FILE="$CF_DIR/schema.sql"
 
 if ! command -v npx >/dev/null 2>&1; then
 	echo "npx not found. Please install Node.js first."
@@ -20,6 +21,11 @@ fi
 
 if [[ ! -f "$CFG_FILE" ]]; then
 	cp "$CF_DIR/wrangler.toml.example" "$CFG_FILE"
+fi
+
+if [[ ! -f "$SCHEMA_FILE" ]]; then
+	echo "Missing schema file: $SCHEMA_FILE"
+	exit 1
 fi
 
 # Remove optional KV block when placeholder ID is still present to avoid deploy failure.
@@ -73,7 +79,7 @@ fi
 echo "Ensuring D1 schema exists..."
 npx --yes wrangler d1 execute smart-care-sync \
 	--remote \
-	--command "CREATE TABLE IF NOT EXISTS sync_state (sync_key TEXT PRIMARY KEY, payload TEXT NOT NULL, updated_at INTEGER NOT NULL); CREATE INDEX IF NOT EXISTS idx_sync_state_updated_at ON sync_state(updated_at);" \
+	--file "$SCHEMA_FILE" \
 	--config "$CFG_FILE"
 
 DEPLOY_LOG="$(mktemp)"
