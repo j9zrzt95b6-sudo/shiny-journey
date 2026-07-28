@@ -767,11 +767,7 @@
         localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fromUrl);
         return fromUrl;
       }
-      const fromStorage = sanitizeSyncKey(localStorage.getItem(CLOUD_SYNC_KEY_STORAGE));
-      if (fromStorage) {
-        return fromStorage;
-      }
-      const fallbackKey = DEFAULT_CLOUD_SYNC_KEY || "smart-care-main";
+      const fallbackKey = DEFAULT_CLOUD_SYNC_KEY || "center-a";
       localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fallbackKey);
       return fallbackKey;
     }
@@ -820,7 +816,8 @@
 
     function getShareSyncLink() {
       const url = new URL(location.href);
-      url.searchParams.set(CLOUD_SYNC_KEY_PARAM, cloudSyncKey);
+      const targetKey = sanitizeSyncKey(cloudSyncKey) || "center-a";
+      url.searchParams.set(CLOUD_SYNC_KEY_PARAM, targetKey);
       if (cloudSyncBaseUrl && !cloudSyncBaseUrl.startsWith("/")) {
         url.searchParams.set(CLOUD_SYNC_BASE_URL_PARAM, cloudSyncBaseUrl);
       }
