@@ -722,7 +722,17 @@
     const CLOUD_SYNC_BASE_URL_STORAGE = "smart-care-cloud-sync-base-url-v1";
     const CLOUD_SYNC_KEY_PARAM = "syncKey";
     const CLOUD_SYNC_BASE_URL_PARAM = "syncApi";
-    const DEFAULT_CLOUD_SYNC_KEY = "smart-care-main";
+    function resolveDefaultCloudSyncKey() {
+      const slug = String(location.pathname || "")
+        .split("/")
+        .filter(Boolean)
+        .map(part => part.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, ""))
+        .filter(Boolean)
+        .pop() || "";
+      const fallback = slug || String(location.hostname || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
+      return fallback || "smart-care-main";
+    }
+    const DEFAULT_CLOUD_SYNC_KEY = resolveDefaultCloudSyncKey();
     const LEGACY_CLOUD_SYNC_BASE_URL = "https://smart-care-sync-api.j9zrzt95b6.workers.dev";
     const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io")
       ? "https://smart-care-sync.j9zrzt95b6.workers.dev/state"
@@ -761,7 +771,13 @@
         return fromUrl;
       }
       const fromStorage = sanitizeSyncKey(localStorage.getItem(CLOUD_SYNC_KEY_STORAGE));
-      if (fromStorage) return fromStorage;
+      if (fromStorage) {
+        if (fromStorage === "smart-care-main" && DEFAULT_CLOUD_SYNC_KEY !== "smart-care-main") {
+          localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, DEFAULT_CLOUD_SYNC_KEY);
+          return DEFAULT_CLOUD_SYNC_KEY;
+        }
+        return fromStorage;
+      }
       return DEFAULT_CLOUD_SYNC_KEY;
     }
 
