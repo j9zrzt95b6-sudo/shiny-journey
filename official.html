@@ -1172,6 +1172,11 @@
         if (hasPendingLocalChanges()) pushCloudState();
         else pullCloudState({ silentRender: true });
       }, 20000);
+      try {
+        await pullCloudState({ silentRender: true });
+      } catch (err) {
+        console.warn("啟動後自動同步失敗", err);
+      }
     }
 
     async function manualCloudSync(buttonEl) {
