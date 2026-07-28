@@ -734,6 +734,10 @@
     }
     const DEFAULT_CLOUD_SYNC_KEY = resolveDefaultCloudSyncKey();
     const LEGACY_CLOUD_SYNC_BASE_URL = "https://smart-care-sync-api.j9zrzt95b6.workers.dev";
+    const ALTERNATE_CLOUD_SYNC_BASE_URLS = [
+      "https://smart-care-sync-api.j9zrzt95b6.workers.dev",
+      "https://smart-care-sync.j9zrzt95b6.workers.dev/state"
+    ];
     const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io")
       ? "https://smart-care-sync.j9zrzt95b6.workers.dev/state"
       : "/.netlify/functions/state";
@@ -786,6 +790,9 @@
         const currentPage = `${location.origin}${location.pathname}`.replace(/\/+$/, "");
         if (location.hostname.endsWith(".github.io") && normalized === currentPage) return "";
         parsed.hash = "";
+        if (/^https:\/\/smart-care-sync-api\.j9zrzt95b6\.workers\.dev(\/.*)?$/.test(value)) {
+          return "https://smart-care-sync.j9zrzt95b6.workers.dev/state";
+        }
         return normalized;
       } catch {
         return "";
@@ -800,7 +807,7 @@
         return fromUrl;
       }
       const fromStorage = sanitizeCloudSyncBaseUrl(localStorage.getItem(CLOUD_SYNC_BASE_URL_STORAGE));
-      if (fromStorage && fromStorage !== LEGACY_CLOUD_SYNC_BASE_URL) return fromStorage;
+      if (fromStorage && !ALTERNATE_CLOUD_SYNC_BASE_URLS.includes(fromStorage)) return fromStorage;
       return DEFAULT_CLOUD_SYNC_BASE_URL;
     }
 
