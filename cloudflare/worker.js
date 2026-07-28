@@ -25,6 +25,77 @@ function getClientBaseUpdatedAt(payload) {
   return 0;
 }
 
+function normalizeParsedPayload(raw) {
+  if (!raw) return null;
+  if (typeof raw === "object") return raw;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadStoredValue(env, kvKey, syncKey) {
+  if (env.SMART_CARE_D1) {
+    const row = await env.SMART_CARE_D1.prepare(
+      "SELECT payload, updated_at FROM sync_state WHERE sync_key = ?"
+    ).bind(syncKey).first();
+    const value = normalizeParsedPayload(row && row.payload);
+    if (value && (!value._meta || !Number(value._meta.updatedAt))) {
+      value._meta = {
+        ...(value._meta || {}),
+        updatedAt: Number(row && row.updated_at) || 0,
+        lastSyncedAt: Number(row && row.updated_at) || 0
+      };
+    }
+    return { value, backend: "d1" };
+  }
+
+  if (!env.SMART_CARE_STATE) {
+    throw new Error("No storage configured. Bind SMART_CARE_D1 or SMART_CARE_STATE.");
+  }
+
+  const raw = await env.SMART_CARE_STATE.get(kvKey);
+  return { value: normalizeParsedPayload(raw), backend: "kv" };
+}
+
+async function storeValue(env, kvKey, syncKey, payload, updatedAt) {
+  if (env.SMART_CARE_D1) {
+    await env.SMART_CARE_D1.prepare(
+      `INSERT INTO sync_state (sync_key, payload, updated_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(sync_key) DO UPDATE SET
+         payload = excluded.payload,
+         updated_at = excluded.updated_at`
+    ).bind(syncKey, JSON.stringify(payload), updatedAt).run();
+    return "d1";
+  }
+
+  if (!env.SMART_CARE_STATE) {
+    throw new Error("No storage configured. Bind SMART_CARE_D1 or SMART_CARE_STATE.");
+  }
+
+  await env.SMART_CARE_STATE.put(kvKey, JSON.stringify(payload));
+  return "kv";
+}
+
+async function deleteValue(env, kvKey, syncKey) {
+  if (env.SMART_CARE_D1) {
+    await env.SMART_CARE_D1.prepare(
+      "DELETE FROM sync_state WHERE sync_key = ?"
+    ).bind(syncKey).run();
+    return "d1";
+  }
+
+  if (!env.SMART_CARE_STATE) {
+    throw new Error("No storage configured. Bind SMART_CARE_D1 or SMART_CARE_STATE.");
+  }
+
+  await env.SMART_CARE_STATE.delete(kvKey);
+  return "kv";
+}
+
 export default {
   async fetch(req, env) {
     if (req.method === "OPTIONS") return json(200, { ok: true });
@@ -37,17 +108,16 @@ export default {
       const kvKey = `smart-care:${syncKey}`;
 
       if (req.method === "GET") {
-        const raw = await env.SMART_CARE_STATE.get(kvKey);
-        const value = raw ? JSON.parse(raw) : null;
-        return json(200, { ok: true, value: value || null });
+        const { value, backend } = await loadStoredValue(env, kvKey, syncKey);
+        return json(200, { ok: true, value: value || null, storage: backend });
       }
 
       if (req.method === "DELETE") {
         if (url.searchParams.get("confirm") !== "delete") {
           return json(400, { ok: false, error: "missing confirm=delete" });
         }
-        await env.SMART_CARE_STATE.delete(kvKey);
-        return json(200, { ok: true, deleted: true });
+        const backend = await deleteValue(env, kvKey, syncKey);
+        return json(200, { ok: true, deleted: true, storage: backend });
       }
 
       if (req.method === "POST") {
@@ -59,8 +129,7 @@ export default {
         }
         if (!body || typeof body !== "object") return json(400, { ok: false, error: "invalid body" });
 
-        const raw = await env.SMART_CARE_STATE.get(kvKey);
-        const existing = raw ? JSON.parse(raw) : null;
+        const { value: existing } = await loadStoredValue(env, kvKey, syncKey);
         const existingUpdatedAt = getUpdatedAt(existing);
         const incomingUpdatedAt = getUpdatedAt(body);
         const clientBaseUpdatedAt = getClientBaseUpdatedAt(body);
@@ -83,9 +152,10 @@ export default {
           }
         };
 
-        await env.SMART_CARE_STATE.put(kvKey, JSON.stringify(nextBody));
+        const backend = await storeValue(env, kvKey, syncKey, nextBody, serverUpdatedAt);
         return json(200, {
           ok: true,
+          storage: backend,
           updatedAt: serverUpdatedAt,
           acceptedClientUpdatedAt: incomingUpdatedAt || 0,
           previousServerUpdatedAt: existingUpdatedAt

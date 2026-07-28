@@ -723,8 +723,9 @@
     const CLOUD_SYNC_KEY_PARAM = "syncKey";
     const CLOUD_SYNC_BASE_URL_PARAM = "syncApi";
     const DEFAULT_CLOUD_SYNC_KEY = "smart-care-main";
+    const LEGACY_CLOUD_SYNC_BASE_URL = "https://smart-care-sync-api.j9zrzt95b6.workers.dev";
     const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io")
-      ? "https://smart-care-sync-api.j9zrzt95b6.workers.dev"
+      ? "https://smart-care-sync.j9zrzt95b6.workers.dev/state"
       : "/.netlify/functions/state";
     const CLOUD_SYNC_ENABLED = location.protocol === "http:" || location.protocol === "https:";
     let cloudSyncKey = resolveCloudSyncKey();
@@ -771,8 +772,11 @@
       try {
         const parsed = new URL(value);
         if (parsed.protocol !== "https:") return "";
+        const normalized = `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+        const currentPage = `${location.origin}${location.pathname}`.replace(/\/+$/, "");
+        if (location.hostname.endsWith(".github.io") && normalized === currentPage) return "";
         parsed.hash = "";
-        return `${parsed.origin}${parsed.pathname}`.replace(/\/+$/, "");
+        return normalized;
       } catch {
         return "";
       }
@@ -786,7 +790,7 @@
         return fromUrl;
       }
       const fromStorage = sanitizeCloudSyncBaseUrl(localStorage.getItem(CLOUD_SYNC_BASE_URL_STORAGE));
-      if (fromStorage) return fromStorage;
+      if (fromStorage && fromStorage !== LEGACY_CLOUD_SYNC_BASE_URL) return fromStorage;
       return DEFAULT_CLOUD_SYNC_BASE_URL;
     }
 

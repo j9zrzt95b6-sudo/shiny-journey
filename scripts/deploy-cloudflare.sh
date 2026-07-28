@@ -11,7 +11,7 @@ fi
 
 if [[ ! -f "$CF_DIR/wrangler.toml" ]]; then
   echo "Missing $CF_DIR/wrangler.toml"
-  echo "Please copy wrangler.toml.example -> wrangler.toml and fill KV namespace id"
+  echo "Please copy wrangler.toml.example -> wrangler.toml and fill D1 database_id (and optional KV id)"
   exit 1
 fi
 

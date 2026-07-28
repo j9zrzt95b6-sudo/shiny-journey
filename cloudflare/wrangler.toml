@@ -5,8 +5,4 @@ compatibility_date = "2026-07-26"
 [[d1_databases]]
 binding = "SMART_CARE_D1"
 database_name = "smart-care-sync"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
-
-[[kv_namespaces]]
-binding = "SMART_CARE_STATE"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+database_id = "c26f70ae-5efa-4533-9654-e2579b69792f"
