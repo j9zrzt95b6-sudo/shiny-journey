@@ -5824,10 +5824,16 @@
       if (copySyncLinkBtn) {
         copySyncLinkBtn.addEventListener("click", async () => {
           const link = getShareSyncLink();
+          const originalText = copySyncLinkBtn.textContent;
           try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
               await navigator.clipboard.writeText(link);
-              alert("同步連結已複製");
+              copySyncLinkBtn.textContent = "已複製";
+              copySyncLinkBtn.disabled = true;
+              setTimeout(() => {
+                copySyncLinkBtn.textContent = originalText;
+                copySyncLinkBtn.disabled = false;
+              }, 1500);
               return;
             }
           } catch {}
