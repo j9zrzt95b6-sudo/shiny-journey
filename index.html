@@ -723,14 +723,19 @@
     const CLOUD_SYNC_KEY_PARAM = "syncKey";
     const CLOUD_SYNC_BASE_URL_PARAM = "syncApi";
     function resolveDefaultCloudSyncKey() {
-      const slug = String(location.pathname || "")
+      const pathParts = String(location.pathname || "")
         .split("/")
         .filter(Boolean)
         .map(part => part.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, ""))
-        .filter(Boolean)
-        .pop() || "";
-      const fallback = slug || String(location.hostname || "").toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/-{2,}/g, "-").replace(/^-+|-+$/g, "");
-      return fallback || "smart-care-main";
+        .filter(Boolean);
+      const pathSlug = pathParts[pathParts.length - 1] || "";
+      const hostSlug = String(location.hostname || "")
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]+/g, "-")
+        .replace(/-{2,}/g, "-")
+        .replace(/^-+|-+$/g, "");
+      const candidates = [pathSlug, hostSlug, "shared"].filter(Boolean);
+      return candidates.join("-") || "smart-care-main";
     }
     const DEFAULT_CLOUD_SYNC_KEY = resolveDefaultCloudSyncKey();
     const LEGACY_CLOUD_SYNC_BASE_URL = "https://smart-care-sync-api.j9zrzt95b6.workers.dev";
@@ -773,6 +778,10 @@
       if (fromUrl) {
         localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fromUrl);
         return fromUrl;
+      }
+      const fromStorage = sanitizeSyncKey(localStorage.getItem(CLOUD_SYNC_KEY_STORAGE));
+      if (fromStorage && fromStorage !== "smart-care-main") {
+        return fromStorage;
       }
       const fallbackKey = DEFAULT_CLOUD_SYNC_KEY || "smart-care-main";
       localStorage.setItem(CLOUD_SYNC_KEY_STORAGE, fallbackKey);
