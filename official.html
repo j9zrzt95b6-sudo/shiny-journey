@@ -839,7 +839,7 @@
       if (!el) return;
       const key = cloudSyncKey || DEFAULT_CLOUD_SYNC_KEY;
       const hue = getSyncKeyHue(key);
-      el.textContent = `同步碼：${key}`;
+      el.textContent = `共享群組：${key}`;
       el.style.background = `hsl(${hue} 100% 96%)`;
       el.style.color = `hsl(${hue} 65% 28%)`;
       el.style.borderColor = `hsl(${hue} 50% 78%)`;

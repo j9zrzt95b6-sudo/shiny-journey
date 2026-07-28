@@ -839,7 +839,7 @@
       if (!el) return;
       const key = cloudSyncKey || DEFAULT_CLOUD_SYNC_KEY;
       const hue = getSyncKeyHue(key);
-      el.textContent = `同步碼：${key}`;
+      el.textContent = `共享群組：${key}`;
       el.style.background = `hsl(${hue} 100% 96%)`;
       el.style.color = `hsl(${hue} 65% 28%)`;
       el.style.borderColor = `hsl(${hue} 50% 78%)`;
@@ -906,6 +906,7 @@
         el.style.color = "#166534";
         el.style.borderColor = "#86efac";
       }
+      updateSyncMetaBadge();
     }
 
     function updateCloudSyncBadge() {
@@ -917,6 +918,26 @@
       badge.style.background = isCloudSyncConfigured() ? "#dcfce7" : "#fef3c7";
       badge.style.color = isCloudSyncConfigured() ? "#166534" : "#92400e";
       badge.style.borderColor = isCloudSyncConfigured() ? "#86efac" : "#fcd34d";
+    }
+
+    function formatLastSyncTime(value) {
+      const ms = Number(value || 0);
+      if (!ms) return "尚未同步";
+      const date = new Date(ms);
+      if (Number.isNaN(date.getTime())) return "尚未同步";
+      return date.toLocaleString("zh-TW", { hour12: false });
+    }
+
+    function updateSyncMetaBadge() {
+      const badge = document.getElementById("syncMetaBadge");
+      if (!badge) return;
+      const groupKey = sanitizeSyncKey(cloudSyncKey) || DEFAULT_CLOUD_SYNC_KEY || "center-a";
+      const lastSyncLabel = formatLastSyncTime(getLastSyncedAt(state._meta));
+      badge.textContent = `共享群組：${groupKey} · 最後同步：${lastSyncLabel}`;
+      badge.title = `目前共享群組 ${groupKey}`;
+      badge.style.background = "#f8fafc";
+      badge.style.color = "#334155";
+      badge.style.borderColor = "#cbd5e1";
     }
 
     function nowClock() {
