@@ -1,34 +1,37 @@
 # Cloudflare 同步 API 設定（免費資料庫版）
 
-## 1) 登入 Cloudflare
-
-```bash
-npx --yes wrangler login
-```
+## 1) 準備 Cloudflare API Token（建議）
 
 ### Codespaces 常見問題：授權後跳到 localhost 無法連線
 
 在 GitHub Codespaces / Dev Container 中，`wrangler login` 的 OAuth 回呼預設是 `http://localhost:8976/oauth/callback`。
 授權頁在你本機瀏覽器開啟時，`localhost` 會指向你的本機，不是容器，因此常出現無法連線。
 
-若遇到此問題，建議改用 API Token（不走 OAuth 回呼）：
+建議直接使用 API Token（不走 OAuth 回呼）：
 
 1. 到 Cloudflare Dashboard 建立 API Token（建議權限）
 	- Account: Account Settings Read
 	- D1: Edit
 	- Workers Scripts: Edit
 	- Workers KV Storage: Edit（若要保留 KV 備援）
-2. 在目前終端機設定環境變數（以下值請換成你的）
+2. 建立本機環境檔（以下值請換成你的）
 
 ```bash
-export CLOUDFLARE_API_TOKEN="<YOUR_API_TOKEN>"
-export CLOUDFLARE_ACCOUNT_ID="<YOUR_ACCOUNT_ID>"
+cp .env.cloudflare.example .env.cloudflare
 ```
 
-3. 驗證是否可用
+在 `.env.cloudflare` 填入：
 
 ```bash
-npx --yes wrangler whoami
+CLOUDFLARE_API_TOKEN="<YOUR_API_TOKEN>"
+CLOUDFLARE_ACCOUNT_ID="<YOUR_ACCOUNT_ID>"
+```
+
+3. 驗證是否可用（可選）
+
+```bash
+set -a; source .env.cloudflare; set +a
+npx --yes wrangler whoami --config cloudflare/wrangler.toml
 ```
 
 看到帳號資訊就可以直接執行後續 D1 建立與部署。
@@ -58,6 +61,13 @@ chmod +x scripts/deploy-cloudflare.sh
 ./scripts/deploy-cloudflare.sh
 ```
 
+`scripts/deploy-cloudflare.sh` 會自動讀取 `.env.cloudflare` 或 `.env.cloudflare.local`。
+若你要單次覆蓋也可以：
+
+```bash
+CLOUDFLARE_API_TOKEN="..." CLOUDFLARE_ACCOUNT_ID="..." ./scripts/deploy-cloudflare.sh
+```
+
 部署完成會得到 `https://<worker>.workers.dev`。
 
 ## 5) 在系統設定填入同步 API 位址
@@ -75,6 +85,19 @@ chmod +x scripts/deploy-cloudflare.sh
 3. C 裝置再修改，A/B 重新回到頁面應拿到最新版本
 
 > 若遇到版本衝突，系統會自動回拉雲端最新資料，避免舊裝置覆蓋新資料。
+
+### 一鍵健康檢查（建議部署後執行）
+
+```bash
+chmod +x scripts/cloudflare-healthcheck.sh
+./scripts/cloudflare-healthcheck.sh
+```
+
+若要檢查其他 API 位址：
+
+```bash
+./scripts/cloudflare-healthcheck.sh "https://your-worker.workers.dev/state"
+```
 
 ## 7) 確認真的寫入資料庫
 

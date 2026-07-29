@@ -1,9 +1,12 @@
 name = "smart-care-sync-api"
 main = "worker.js"
-compatibility_date = "2026-07-26"
+compatibility_date = "2024-09-23"
+
+[observability]
+enabled = false
 
 [[d1_databases]]
-binding = "SMART_CARE_D1"
+binding = "DB"
 database_name = "smart-care-sync"
 database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
 

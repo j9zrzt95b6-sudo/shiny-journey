@@ -432,6 +432,49 @@
       display: none;
     }
 
+    .toast-container {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      display: grid;
+      gap: 8px;
+      z-index: 1200;
+      pointer-events: none;
+    }
+
+    .toast-msg {
+      min-width: 220px;
+      max-width: min(86vw, 420px);
+      border-radius: 10px;
+      border: 1px solid #bbf7d0;
+      background: #f0fdf4;
+      color: #166534;
+      box-shadow: var(--shadow);
+      padding: 10px 12px;
+      font-size: 13px;
+      opacity: 0;
+      transform: translateY(-8px);
+      transition: opacity .18s ease, transform .18s ease;
+      word-break: break-word;
+    }
+
+    .toast-msg.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .toast-msg.warn {
+      border-color: #fed7aa;
+      background: #fff7ed;
+      color: #9a3412;
+    }
+
+    .toast-msg.error {
+      border-color: #fecaca;
+      background: #fef2f2;
+      color: #991b1b;
+    }
+
     @media (max-width: 1024px) {
       .app {
         grid-template-columns: 1fr;
@@ -512,6 +555,7 @@
       <section class="view" id="view-mobile"></section>
     </main>
   </div>
+  <div id="toastHost" class="toast-container" aria-live="polite" aria-atomic="true"></div>
 
   <script>
     const state = {
@@ -592,7 +636,31 @@
         period: "本月",
         clientName: "全部個案",
         startDate: "",
-        endDate: ""
+        endDate: "",
+        keyword: "",
+        maxRows: 20,
+        onlyWithData: false,
+        showFilterPanel: false
+      },
+      tokenSetupFilter: {
+        clientKeyword: "",
+        clientMaxRows: 20,
+        rewardKeyword: "",
+        rewardMaxRows: 20
+      },
+      caseListFilter: {
+        keyword: "",
+        className: "全部班級",
+        maxRows: 20,
+        showFilterPanel: false,
+        sortMode: "default"
+      },
+      taskListFilter: {
+        keyword: "",
+        category: "全部類別",
+        maxRows: 20,
+        showFilterPanel: false,
+        mode: "all"
       },
       undoWindowMinutes: 30,
       emotionRecords: [],
@@ -602,6 +670,18 @@
       lastAnalysisFilterSourceKey: "completion",
       mediaFilter: { clientName: "全部個案", mediaType: "全部" },
       serviceFilter: { category: "全部", keyword: "", clientName: "全部個案" },
+      emotionBehaviorFilter: {
+        emotionKeyword: "",
+        emotionDateFrom: "",
+        emotionDateTo: "",
+        emotionMaxRows: 50,
+        emotionShowPanel: false,
+        abcKeyword: "",
+        abcDateFrom: "",
+        abcDateTo: "",
+        abcMaxRows: 60,
+        abcShowPanel: false
+      },
       isps: [
         {
           id: id(), clientName: "王小明", type: "長期目標", goal: "三個月內洗手流程獨立完成",
@@ -634,6 +714,7 @@
       selectedTeacherForEdit: null,
       selectedTaskForEdit: null,
       selectedRewardForEdit: null,
+      selectedExchangeForEdit: null,
       selectedEmotionForEdit: null,
       selectedBehaviorForEdit: null,
       selectedServiceForEdit: null
@@ -1411,8 +1492,27 @@
         action,
         detail
       });
+      const detailText = String(detail || "").trim();
+      const message = detailText ? `${action}：${detailText}` : String(action || "已完成");
+      showToast(message.length > 72 ? `${message.slice(0, 72)}...` : message, "success");
       renderLogs();
       saveState();
+    }
+
+    function showToast(message, type = "success") {
+      const host = document.getElementById("toastHost");
+      if (!host) return;
+      const toast = document.createElement("div");
+      toast.className = `toast-msg ${type === "warn" || type === "error" ? type : ""}`.trim();
+      toast.textContent = String(message || "已完成操作");
+      host.appendChild(toast);
+      requestAnimationFrame(() => toast.classList.add("show"));
+      setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => {
+          if (toast.parentElement === host) host.removeChild(toast);
+        }, 220);
+      }, 2200);
     }
 
     function normalizeRole(role) {
@@ -1919,6 +2019,38 @@
 
     function renderCases() {
       const host = document.getElementById("view-cases");
+      const caseFilter = {
+        keyword: "",
+        className: "全部班級",
+        maxRows: 20,
+        showFilterPanel: false,
+        sortMode: "default",
+        ...(state.caseListFilter || {})
+      };
+      if (caseFilter.className !== "全部班級" && !state.classes.includes(caseFilter.className)) {
+        caseFilter.className = "全部班級";
+      }
+      state.caseListFilter = caseFilter;
+      const caseFilterThreshold = 100;
+      const caseKeyword = String(caseFilter.keyword || "").trim().toLowerCase();
+      const caseMaxRows = [20, 50, 100, 200].includes(Number(caseFilter.maxRows)) ? Number(caseFilter.maxRows) : 20;
+      const scopedClassName = state.role === "teacher"
+        ? (getCurrentTeacherClass() || "")
+        : (state.selectedClass !== "全部班級" ? state.selectedClass : "");
+      const sourceClients = caseFilter.sortMode === "recent" ? state.clients.slice().reverse() : state.clients;
+      const filteredClients = sourceClients.filter(c => {
+        const classOk = caseFilter.className === "全部班級" || c.className === caseFilter.className;
+        if (!classOk) return false;
+        if (!caseKeyword) return true;
+        const bag = `${c.name || ""} ${c.className || ""} ${c.ability || ""} ${c.goal || ""} ${c.notes || ""} ${(c.reinforcers || []).join(" ")} ${c.createdBy || ""}`.toLowerCase();
+        return bag.includes(caseKeyword);
+      });
+      const visibleClients = filteredClients.slice(0, caseMaxRows);
+      const hasActiveCaseFilter = !!caseKeyword || caseFilter.className !== "全部班級" || caseMaxRows !== 20 || caseFilter.sortMode !== "default";
+      const shouldShowCaseFilterPanel = state.clients.length > caseFilterThreshold
+        || hasActiveCaseFilter
+        || !!caseFilter.showFilterPanel;
+
       host.innerHTML = `
         <div class="card">
           <h3>新增 / 編輯個案</h3>
@@ -1941,6 +2073,22 @@
         </div>
         <div class="card">
           <h3>個案列表（管理 / 查看 / 預覽）</h3>
+          <div class="actions" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+            <p class="mini" style="margin:0;">共 ${state.clients.length} 位，符合篩選 ${filteredClients.length} 位，目前顯示 ${visibleClients.length} 位。</p>
+            <button class="btn" type="button" id="toggleCaseFilterBtn">${shouldShowCaseFilterPanel ? "收合篩選" : "展開篩選"}</button>
+          </div>
+          <div id="caseFilterPanel" style="display:${shouldShowCaseFilterPanel ? "block" : "none"};">
+            <div class="grid-4" style="margin-bottom:8px;">
+              <div class="field"><label>關鍵字</label><input id="caseKeywordFilter" value="${caseFilter.keyword || ""}" placeholder="姓名/目標/能力/備註" /></div>
+              <div class="field"><label>班級</label><select id="caseClassFilter"><option ${caseFilter.className === "全部班級" ? "selected" : ""}>全部班級</option>${state.classes.map(c => `<option ${caseFilter.className === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
+              <div class="field"><label>顯示筆數</label><select id="caseMaxRows"><option value="20" ${caseMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${caseMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${caseMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${caseMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+            </div>
+            <div class="actions" style="margin-bottom:8px;">
+              <button class="btn ${caseFilter.sortMode === "default" && caseFilter.className === "全部班級" && !caseKeyword ? "primary" : ""}" type="button" id="caseQuickAllBtn">全部</button>
+              <button class="btn ${caseFilter.className === scopedClassName && scopedClassName ? "primary" : ""}" type="button" id="caseQuickClassBtn" ${scopedClassName ? "" : "disabled"}>只看本班${scopedClassName ? `（${scopedClassName}）` : ""}</button>
+              <button class="btn ${caseFilter.sortMode === "recent" ? "primary" : ""}" type="button" id="caseQuickRecentBtn">最近新增</button>
+            </div>
+          </div>
           <div class="actions" style="margin-bottom:8px;">
             <button class="btn" type="button" id="caseSelectAllBtn">全選</button>
             <button class="btn danger" type="button" id="caseBulkDeleteBtn">刪除勾選</button>
@@ -1953,7 +2101,7 @@
       `;
 
       const tbody = host.querySelector("#caseTableBody");
-      tbody.innerHTML = state.clients.map(c => `
+      tbody.innerHTML = visibleClients.map(c => `
         <tr>
           <td><input type="checkbox" data-case-select="${c.id}" aria-label="勾選個案 ${c.name}"></td>
           <td>${c.name}</td>
@@ -1974,6 +2122,68 @@
       const caseSelectAll = host.querySelector("#caseSelectAll");
       const caseSelectAllBtn = host.querySelector("#caseSelectAllBtn");
       const caseBulkDeleteBtn = host.querySelector("#caseBulkDeleteBtn");
+      const toggleCaseFilterBtn = host.querySelector("#toggleCaseFilterBtn");
+      const caseKeywordFilter = host.querySelector("#caseKeywordFilter");
+      const caseClassFilter = host.querySelector("#caseClassFilter");
+      const caseMaxRowsSelect = host.querySelector("#caseMaxRows");
+      const caseQuickAllBtn = host.querySelector("#caseQuickAllBtn");
+      const caseQuickClassBtn = host.querySelector("#caseQuickClassBtn");
+      const caseQuickRecentBtn = host.querySelector("#caseQuickRecentBtn");
+
+      if (toggleCaseFilterBtn) {
+        toggleCaseFilterBtn.addEventListener("click", () => {
+          state.caseListFilter.showFilterPanel = !shouldShowCaseFilterPanel;
+          renderCases();
+        });
+      }
+      if (caseKeywordFilter) {
+        const applyCaseKeyword = () => {
+          state.caseListFilter.keyword = caseKeywordFilter.value.trim();
+          renderCases();
+        };
+        caseKeywordFilter.addEventListener("change", applyCaseKeyword);
+        caseKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          applyCaseKeyword();
+        });
+      }
+      if (caseClassFilter) {
+        caseClassFilter.addEventListener("change", () => {
+          state.caseListFilter.className = caseClassFilter.value;
+          renderCases();
+        });
+      }
+      if (caseMaxRowsSelect) {
+        caseMaxRowsSelect.addEventListener("change", () => {
+          const nextMaxRows = Number(caseMaxRowsSelect.value);
+          state.caseListFilter.maxRows = [20, 50, 100, 200].includes(nextMaxRows) ? nextMaxRows : 20;
+          renderCases();
+        });
+      }
+      if (caseQuickAllBtn) {
+        caseQuickAllBtn.addEventListener("click", () => {
+          state.caseListFilter.keyword = "";
+          state.caseListFilter.className = "全部班級";
+          state.caseListFilter.maxRows = 20;
+          state.caseListFilter.sortMode = "default";
+          renderCases();
+        });
+      }
+      if (caseQuickClassBtn) {
+        caseQuickClassBtn.addEventListener("click", () => {
+          if (!scopedClassName) return;
+          state.caseListFilter.className = scopedClassName;
+          state.caseListFilter.sortMode = "default";
+          renderCases();
+        });
+      }
+      if (caseQuickRecentBtn) {
+        caseQuickRecentBtn.addEventListener("click", () => {
+          state.caseListFilter.sortMode = state.caseListFilter.sortMode === "recent" ? "default" : "recent";
+          renderCases();
+        });
+      }
 
       function getSelectedCaseIds() {
         return Array.from(tbody.querySelectorAll("[data-case-select]:checked")).map(cb => cb.dataset.caseSelect);
@@ -2455,7 +2665,34 @@
       const host = document.getElementById("view-tokens");
       const tokenByClient = {};
       const currentMonth = new Date().toISOString().slice(0, 7);
-      const f = state.tokenExchangeFilter;
+      const setupFilter = {
+        clientKeyword: "",
+        clientMaxRows: 20,
+        rewardKeyword: "",
+        rewardMaxRows: 20,
+        ...(state.tokenSetupFilter || {})
+      };
+      const allowedSetupRows = [20, 50, 100, 200];
+      setupFilter.clientMaxRows = allowedSetupRows.includes(Number(setupFilter.clientMaxRows)) ? Number(setupFilter.clientMaxRows) : 20;
+      setupFilter.rewardMaxRows = allowedSetupRows.includes(Number(setupFilter.rewardMaxRows)) ? Number(setupFilter.rewardMaxRows) : 20;
+      state.tokenSetupFilter = setupFilter;
+      const f = {
+        period: "本月",
+        clientName: "全部個案",
+        startDate: "",
+        endDate: "",
+        keyword: "",
+        maxRows: 20,
+        onlyWithData: false,
+        ...(state.tokenExchangeFilter || {})
+      };
+      const validPeriods = ["本月", "本季", "全部", "自訂"];
+      if (!validPeriods.includes(f.period)) f.period = "本月";
+      const validClientNames = new Set(state.clients.map(c => c.name));
+      if (f.clientName !== "全部個案" && !validClientNames.has(f.clientName)) {
+        f.clientName = "全部個案";
+      }
+      state.tokenExchangeFilter = f;
       state.clients.forEach(c => tokenByClient[c.name] = 0);
       state.records.forEach(r => {
         if (tokenByClient[r.clientName] !== undefined) tokenByClient[r.clientName] += (r.tokenAward - r.tokenDeduct);
@@ -2464,48 +2701,52 @@
         if (!x.isVoided && tokenByClient[x.clientName] !== undefined) tokenByClient[x.clientName] -= x.cost;
       });
 
+      const clientKeyword = String(setupFilter.clientKeyword || "").trim().toLowerCase();
+      const rewardKeyword = String(setupFilter.rewardKeyword || "").trim().toLowerCase();
+      const filteredTokenClients = state.clients
+        .map(c => ({ name: c.name, className: c.className || "", token: Number(tokenByClient[c.name] || 0) }))
+        .filter(row => {
+          if (!clientKeyword) return true;
+          const bag = `${row.name} ${row.className} ${row.token}`.toLowerCase();
+          return bag.includes(clientKeyword);
+        });
+      const visibleTokenClients = filteredTokenClients.slice(0, setupFilter.clientMaxRows);
+      const filteredRewards = state.tokenShops.filter(r => {
+        if (!rewardKeyword) return true;
+        const bag = `${r.item || ""} ${r.content || ""} ${r.cost || ""} ${r.createdBy || ""}`.toLowerCase();
+        return bag.includes(rewardKeyword);
+      });
+      const visibleRewards = filteredRewards.slice(0, setupFilter.rewardMaxRows);
+
+      const clientsWithExchangeData = new Set(
+        state.tokenExchanges
+          .filter(x => !!x && !!x.clientName)
+          .map(x => String(x.clientName))
+      );
+
       const clientOptions = state.clients.map(c => `<option>${c.name}</option>`).join("");
       const rewardOptions = state.tokenShops.map(r => `<option value="${r.id}">${r.item}（預設 ${r.cost}）</option>`).join("");
-      const filterClientOptions = ["全部個案", ...state.clients.map(c => c.name)]
+      const filterClientList = f.onlyWithData
+        ? state.clients.map(c => c.name).filter(name => clientsWithExchangeData.has(name))
+        : state.clients.map(c => c.name);
+      const filterClientOptions = ["全部個案", ...filterClientList]
         .map(name => `<option ${f.clientName === name ? "selected" : ""}>${name}</option>`)
         .join("");
       const filteredExchanges = getFilteredTokenExchanges();
-      const undoRequests = (state.tokenUndoRequests || []).slice().sort((a, b) => (b.createdAtIso || "").localeCompare(a.createdAtIso || ""));
-      const pendingRequestByExchangeId = {};
-      undoRequests.forEach(req => {
-        if (req.status === "pending" && !pendingRequestByExchangeId[req.exchangeId]) {
-          pendingRequestByExchangeId[req.exchangeId] = req;
-        }
-      });
-      const requestStatusFilter = state.tokenUndoRequestStatusFilter || "待審";
-      const filteredUndoRequests = undoRequests.filter(req => {
-        if (requestStatusFilter === "全部") return true;
-        if (requestStatusFilter === "待審") return req.status === "pending";
-        if (requestStatusFilter === "已核准") return req.status === "approved";
-        if (requestStatusFilter === "已駁回") return req.status === "rejected";
-        return true;
-      });
-      const undoDeleteSecondsLeft = tokenUndoDeleteExpiresAt > Date.now()
-        ? Math.ceil((tokenUndoDeleteExpiresAt - Date.now()) / 1000)
-        : 0;
-      const hasUndoDeleteDraft = Array.isArray(tokenUndoDeleteDraft)
-        && tokenUndoDeleteDraft.length > 0
-        && undoDeleteSecondsLeft > 0;
-      const actor = getCurrentActor();
-      const canBatchDeleteRequests = state.role === "teacher" || state.role === "supervisor" || state.role === "admin";
-      const adminDeleteLockSecondsLeft = state.role === "admin" ? getAdminDeleteConfirmLockSecondsLeft() : 0;
-      const deletableUndoRequestIds = new Set(undoRequests.filter(req => {
-        if (state.role === "teacher") return req.requestedBy === actor;
-        return state.role === "supervisor" || state.role === "admin";
-      }).map(req => req.id));
-      const selectedUndoRequestIds = new Set(
-        (Array.isArray(state.tokenUndoSelectedIds) ? state.tokenUndoSelectedIds : [])
-          .filter(id => undoRequests.some(req => req.id === id) && deletableUndoRequestIds.has(id))
-      );
-      state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
-      const visibleDeletableRequests = filteredUndoRequests.filter(req => deletableUndoRequestIds.has(req.id));
-      const selectedVisibleUndoCount = visibleDeletableRequests.filter(req => selectedUndoRequestIds.has(req.id)).length;
-      const pendingCount = undoRequests.filter(x => x.status === "pending").length;
+      const maxRows = Number(f.maxRows || 20);
+      const allowedMaxRows = [20, 50, 100, 200];
+      const safeMaxRows = allowedMaxRows.includes(maxRows) ? maxRows : 20;
+      const visibleExchangeRows = filteredExchanges.slice(0, safeMaxRows);
+      const autoFilterThreshold = 100;
+      const hasActiveExchangeFilter = f.period !== "本月"
+        || f.clientName !== "全部個案"
+        || !!f.startDate
+        || !!f.endDate
+        || !!String(f.keyword || "").trim()
+        || safeMaxRows !== 20;
+      const shouldShowExchangeFilterPanel = state.tokenExchanges.length > autoFilterThreshold
+        || hasActiveExchangeFilter
+        || !!f.showFilterPanel;
       const monthlyStats = state.clients.map(c => {
         const list = state.tokenExchanges.filter(x => x.clientName === c.name && String(x.createdAtIso || "").startsWith(currentMonth));
         return {
@@ -2520,16 +2761,21 @@
           <div class="card">
             <h3>個別化代幣規則（老師可設定）</h3>
             <p class="muted">可輸入每一筆工作代幣與品質不佳回扣金額，已整合在每日紀錄。</p>
+            <div class="grid-4" style="margin-bottom:8px;">
+              <div class="field"><label>關鍵字</label><input id="tokenClientKeywordFilter" value="${setupFilter.clientKeyword || ""}" placeholder="個案/班級/代幣"></div>
+              <div class="field"><label>顯示筆數</label><select id="tokenClientMaxRows"><option value="20" ${setupFilter.clientMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${setupFilter.clientMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${setupFilter.clientMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${setupFilter.clientMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+            </div>
+            <p class="mini" style="margin:0 0 8px 0;">共 ${state.clients.length} 筆，符合篩選 ${filteredTokenClients.length} 筆，目前顯示 ${visibleTokenClients.length} 筆。</p>
             <table>
               <thead><tr><th>個案</th><th>目前代幣</th><th>快速兌換</th></tr></thead>
               <tbody>
-                ${Object.entries(tokenByClient).map(([name, token]) => `
+                ${visibleTokenClients.map(row => `
                   <tr>
-                    <td>${name}</td>
-                    <td>${token}</td>
-                    <td><button class="btn" data-fast-exchange="${name}">兌換</button></td>
+                    <td>${row.name}</td>
+                    <td>${row.token}</td>
+                    <td><button class="btn" data-fast-exchange="${row.name}">兌換</button></td>
                   </tr>
-                `).join("")}
+                `).join("") || "<tr><td colspan='3'>尚無符合條件個案</td></tr>"}
               </tbody>
             </table>
           </div>
@@ -2537,7 +2783,7 @@
             <h3>代幣商城（新增 / 編輯 / 刪除）</h3>
             <form id="rewardForm" class="grid-4">
               <div class="field"><label>獎勵名稱</label><input name="item" required /></div>
-              <div class="field"><label>代幣金額</label><input name="cost" type="number" min="1" required /></div>
+              <div class="field"><label>代幣金額</label><input name="cost" type="text" inputmode="numeric" pattern="[0-9]*" placeholder="請輸入正整數" required /></div>
               <div class="field"><label>兌換內容</label><input name="content" placeholder="例如：果汁 1 瓶 / 平板 20 分鐘" required /></div>
               <div class="actions" style="align-items:end;">
                 <button class="btn primary" type="submit">新增</button>
@@ -2545,6 +2791,11 @@
                 <button class="btn danger" type="button" id="rewardDeleteBtn">刪除</button>
               </div>
             </form>
+            <div class="grid-4" style="margin-bottom:8px;">
+              <div class="field"><label>關鍵字</label><input id="tokenRewardKeywordFilter" value="${setupFilter.rewardKeyword || ""}" placeholder="項目/內容/代幣/建立者"></div>
+              <div class="field"><label>顯示筆數</label><select id="tokenRewardMaxRows"><option value="20" ${setupFilter.rewardMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${setupFilter.rewardMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${setupFilter.rewardMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${setupFilter.rewardMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+            </div>
+            <p class="mini" style="margin:0 0 8px 0;">共 ${state.tokenShops.length} 筆，符合篩選 ${filteredRewards.length} 筆，目前顯示 ${visibleRewards.length} 筆。</p>
             <table>
               <thead><tr><th>項目</th><th>代幣</th><th>兌換內容</th><th>建立者</th><th>操作</th></tr></thead>
               <tbody id="rewardTable"></tbody>
@@ -2556,6 +2807,7 @@
           <h3>兌換作業（可自訂扣點）</h3>
           <div class="actions">
             <button class="btn" id="exportExchangeExcelBtn">匯出兌換紀錄 Excel</button>
+            <button class="btn" type="button" id="resetExchangeFilterBtn">重置篩選</button>
           </div>
           <form id="exchangeForm" class="grid-4">
             <div class="field"><label>個案</label><select name="clientName">${clientOptions}</select></div>
@@ -2565,39 +2817,40 @@
             <div class="field"><label>兌換內容（可覆寫）</label><input name="customContent" placeholder="留空用預設內容" /></div>
             <div class="actions" style="grid-column: 1 / -1;">
               <button class="btn primary" type="submit">確認兌換</button>
+              <button class="btn warn" type="button" id="exchangeUpdateBtn">更新</button>
+              <button class="btn danger" type="button" id="exchangeDeleteBtn">刪除</button>
             </div>
           </form>
 
+          <div class="actions" style="margin-bottom:8px;">
+            <button class="btn" type="button" id="exchangeSelectAllBtn">全選</button>
+            <button class="btn danger" type="button" id="exchangeBulkDeleteBtn">刪除勾選</button>
+            <button class="btn good" type="button" id="exchangeExportSelectedBtn">匯出勾選</button>
+          </div>
+
           <table>
-            <thead><tr><th>時間</th><th>個案</th><th>項目</th><th>扣點</th><th>內容</th><th>操作人</th><th>撤銷資訊</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="exchangeSelectAll" aria-label="全選兌換紀錄"></th><th>日期</th><th>個案</th><th>兌換商品</th><th>兌換內容</th><th>兌換金額</th><th>操作</th></tr></thead>
             <tbody id="exchangeTable"></tbody>
           </table>
 
+          <div class="actions" style="margin-top:10px; justify-content:space-between; align-items:center;">
+            <p class="mini" style="margin:0;">共 ${state.tokenExchanges.length} 筆，符合篩選 ${filteredExchanges.length} 筆，目前顯示 ${visibleExchangeRows.length} 筆。</p>
+            <button class="btn" type="button" id="toggleExchangeFilterBtn">${shouldShowExchangeFilterPanel ? "收合篩選" : "展開篩選"}</button>
+          </div>
+          <div id="exchangeFilterPanel" style="display:${shouldShowExchangeFilterPanel ? "block" : "none"};">
           <div class="grid-4" style="margin-top:10px;">
             <div class="field"><label>紀錄篩選</label><select id="exchangePeriodFilter"><option ${f.period === "本月" ? "selected" : ""}>本月</option><option ${f.period === "本季" ? "selected" : ""}>本季</option><option ${f.period === "全部" ? "selected" : ""}>全部</option><option ${f.period === "自訂" ? "selected" : ""}>自訂</option></select></div>
             <div class="field"><label>個案</label><select id="exchangeClientFilter">${filterClientOptions}</select></div>
             <div class="field"><label>起始日</label><input id="exchangeStartDate" type="date" value="${f.startDate || ""}"></div>
             <div class="field"><label>結束日</label><input id="exchangeEndDate" type="date" value="${f.endDate || ""}"></div>
           </div>
-          <p class="mini">撤銷限制：僅限最近 ${state.undoWindowMinutes} 分鐘內，且需填寫撤銷原因。</p>
-        </div>
-
-        <div class="card">
-          <h3>撤銷申請審核（待審 ${pendingCount}）</h3>
-          <p class="mini">教保員先送申請，督導/管理員於此核准或駁回。</p>
-          <div class="grid-4" style="margin-bottom:10px;">
-            <div class="field"><label>審核清單篩選</label><select id="requestStatusFilter"><option ${requestStatusFilter === "待審" ? "selected" : ""}>待審</option><option ${requestStatusFilter === "全部" ? "selected" : ""}>全部</option><option ${requestStatusFilter === "已核准" ? "selected" : ""}>已核准</option><option ${requestStatusFilter === "已駁回" ? "selected" : ""}>已駁回</option></select></div>
-            <div class="actions" style="grid-column: span 3; justify-content:flex-end; align-items:end;">
-              <button class="btn" type="button" id="selectPendingRequestsBtn" ${canBatchDeleteRequests && visibleDeletableRequests.length > 0 ? "" : "disabled"}>僅選待審</button>
-              <button class="btn warn" type="button" id="undoDeleteRequestsBtn" ${hasUndoDeleteDraft ? "" : "disabled"}>復原刪除（${undoDeleteSecondsLeft}s）</button>
-              <button class="btn danger" type="button" id="deleteSelectedRequestsBtn" ${canBatchDeleteRequests && selectedVisibleUndoCount > 0 && !(state.role === "admin" && getAdminDeleteConfirmLockSecondsLeft() > 0) ? "" : "disabled"}>${state.role === "admin" && getAdminDeleteConfirmLockSecondsLeft() > 0 ? `鎖定中（${getAdminDeleteConfirmLockSecondsLeft()}s）` : `刪除已勾選（${selectedVisibleUndoCount}）`}</button>
-            </div>
+          <div class="grid-4" style="margin-top:10px;">
+            <div class="field"><label>關鍵字</label><input id="exchangeKeywordFilter" placeholder="個案/商品/內容/金額" /></div>
+            <div class="field"><label>顯示筆數</label><select id="exchangeMaxRows"><option value="20" ${safeMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${safeMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${safeMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${safeMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+            <div class="field"><label>個案清單</label><label style="display:flex; align-items:center; gap:6px; margin-top:8px;"><input type="checkbox" id="exchangeClientWithDataOnly" ${f.onlyWithData ? "checked" : ""}> 只看有兌換資料個案</label></div>
           </div>
-          <p class="mini">${state.role === "teacher" ? "可批次刪除自己提出的申請。" : (canBatchDeleteRequests ? "可使用勾選 + 全選進行批次刪除。" : "僅老師/督導/管理員可批次刪除。")}<span id="adminDeleteLockHint">${adminDeleteLockSecondsLeft > 0 ? ` 管理員確認碼鎖定中，剩餘 ${adminDeleteLockSecondsLeft} 秒。` : ""}</span></p>
-          <table>
-            <thead><tr><th><input type="checkbox" id="requestSelectAll" ${visibleDeletableRequests.length > 0 && selectedVisibleUndoCount === visibleDeletableRequests.length ? "checked" : ""} ${visibleDeletableRequests.length ? "" : "disabled"}></th><th>申請時間</th><th>個案</th><th>項目</th><th>扣點</th><th>原因</th><th>申請人</th><th>狀態</th><th>審核資訊</th><th>操作</th></tr></thead>
-            <tbody id="requestTable"></tbody>
-          </table>
+          </div>
+          <p class="mini" style="margin-top:8px;">${state.tokenExchanges.length > autoFilterThreshold ? `已超過 ${autoFilterThreshold} 筆，自動展開篩選。` : `未達 ${autoFilterThreshold} 筆時預設收合篩選。`}</p>
         </div>
 
         <div class="card">
@@ -2607,14 +2860,6 @@
             <tbody>
               ${monthlyStats.map(s => `<tr><td>${s.name}</td><td>${s.count}</td><td>${s.sum}</td></tr>`).join("")}
             </tbody>
-          </table>
-        </div>
-
-        <div class="card">
-          <h3>撤銷歷程（稽核）</h3>
-          <table>
-            <thead><tr><th>撤銷時間</th><th>個案</th><th>項目</th><th>扣點</th><th>撤銷原因</th><th>申請人</th><th>審核人</th></tr></thead>
-            <tbody id="undoTable"></tbody>
           </table>
         </div>
       `;
@@ -2630,7 +2875,7 @@
 
       const form = host.querySelector("#rewardForm");
       const table = host.querySelector("#rewardTable");
-      table.innerHTML = state.tokenShops.map(r => `
+      table.innerHTML = visibleRewards.map(r => `
         <tr>
           <td>${r.item}</td>
           <td>${r.cost}</td>
@@ -2644,30 +2889,103 @@
             </div>
           </td>
         </tr>
-      `).join("");
+      `).join("") || "<tr><td colspan='5'>尚無符合條件項目</td></tr>";
 
-      form.addEventListener("submit", e => {
+      const tokenClientKeywordFilter = host.querySelector("#tokenClientKeywordFilter");
+      const tokenClientMaxRows = host.querySelector("#tokenClientMaxRows");
+      const tokenRewardKeywordFilter = host.querySelector("#tokenRewardKeywordFilter");
+      const tokenRewardMaxRows = host.querySelector("#tokenRewardMaxRows");
+
+      if (tokenClientKeywordFilter) {
+        const applyClientKeyword = () => {
+          state.tokenSetupFilter.clientKeyword = tokenClientKeywordFilter.value.trim();
+          renderTokens();
+        };
+        tokenClientKeywordFilter.addEventListener("change", applyClientKeyword);
+        tokenClientKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          applyClientKeyword();
+        });
+      }
+      if (tokenClientMaxRows) {
+        tokenClientMaxRows.addEventListener("change", () => {
+          const next = Number(tokenClientMaxRows.value);
+          state.tokenSetupFilter.clientMaxRows = [20, 50, 100, 200].includes(next) ? next : 20;
+          renderTokens();
+        });
+      }
+      if (tokenRewardKeywordFilter) {
+        const applyRewardKeyword = () => {
+          state.tokenSetupFilter.rewardKeyword = tokenRewardKeywordFilter.value.trim();
+          renderTokens();
+        };
+        tokenRewardKeywordFilter.addEventListener("change", applyRewardKeyword);
+        tokenRewardKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          applyRewardKeyword();
+        });
+      }
+      if (tokenRewardMaxRows) {
+        tokenRewardMaxRows.addEventListener("change", () => {
+          const next = Number(tokenRewardMaxRows.value);
+          state.tokenSetupFilter.rewardMaxRows = [20, 50, 100, 200].includes(next) ? next : 20;
+          renderTokens();
+        });
+      }
+
+      const parseTokenCost = (raw) => {
+        const cleaned = String(raw || "").replace(/\D+/g, "").replace(/^0+(?=\d)/, "");
+        if (!cleaned) return null;
+        const value = Number(cleaned);
+        if (!Number.isInteger(value) || value < 1) return null;
+        return value;
+      };
+
+      const rewardCostInput = form.elements["cost"];
+      if (rewardCostInput) {
+        rewardCostInput.addEventListener("input", () => {
+          const cleaned = String(rewardCostInput.value || "").replace(/\D+/g, "").replace(/^0+(?=\d)/, "");
+          if (rewardCostInput.value !== cleaned) rewardCostInput.value = cleaned;
+        });
+      }
+
+      form.addEventListener("submit", async e => {
         e.preventDefault();
         const fd = new FormData(form);
+        const cost = parseTokenCost(fd.get("cost"));
+        if (cost === null) return alert("代幣金額必須是 1 以上整數");
         const reward = {
           id: id(),
           item: fd.get("item"),
-          cost: Number(fd.get("cost")),
+          cost,
           content: fd.get("content"),
           createdBy: getCurrentActor()
         };
         state.tokenShops.push(reward);
         log("新增獎勵", `${reward.item}/${reward.cost}/${reward.content}`);
         renderTokens();
+
+        if (isCloudSyncConfigured() && cloudHydrationReady) {
+          try {
+            setSyncStatus("同步中：新增代幣商城...");
+            await pushCloudState();
+          } catch (err) {
+            console.warn("新增代幣商城同步失敗", err);
+          }
+        }
       });
 
       host.querySelector("#rewardUpdateBtn").addEventListener("click", () => {
         if (!state.selectedRewardForEdit) return alert("請先按管理載入獎勵");
         const fd = new FormData(form);
+        const cost = parseTokenCost(fd.get("cost"));
+        if (cost === null) return alert("代幣金額必須是 1 以上整數");
         const reward = state.tokenShops.find(x => x.id === state.selectedRewardForEdit);
         if (!reward) return;
         reward.item = fd.get("item");
-        reward.cost = Number(fd.get("cost"));
+        reward.cost = cost;
         reward.content = fd.get("content");
         log("更新獎勵", `${reward.item}/${reward.cost}/${reward.content}`);
         renderTokens();
@@ -2710,51 +3028,39 @@
 
       const exchangeForm = host.querySelector("#exchangeForm");
       const exchangeTable = host.querySelector("#exchangeTable");
-      const requestTable = host.querySelector("#requestTable");
-      const undoTable = host.querySelector("#undoTable");
       const exportExchangeExcelBtn = host.querySelector("#exportExchangeExcelBtn");
+      const resetExchangeFilterBtn = host.querySelector("#resetExchangeFilterBtn");
       const exchangePeriodFilter = host.querySelector("#exchangePeriodFilter");
       const exchangeClientFilter = host.querySelector("#exchangeClientFilter");
       const exchangeStartDate = host.querySelector("#exchangeStartDate");
       const exchangeEndDate = host.querySelector("#exchangeEndDate");
-      const requestStatusFilterSelect = host.querySelector("#requestStatusFilter");
-      const requestSelectAll = host.querySelector("#requestSelectAll");
-      const selectPendingRequestsBtn = host.querySelector("#selectPendingRequestsBtn");
-      const undoDeleteRequestsBtn = host.querySelector("#undoDeleteRequestsBtn");
-      const deleteSelectedRequestsBtn = host.querySelector("#deleteSelectedRequestsBtn");
-      const adminDeleteLockHint = host.querySelector("#adminDeleteLockHint");
-
-      bindTokenUndoCountdown(undoDeleteRequestsBtn);
-      stopAdminDeleteLockCountdown();
-
-      const syncDeleteButtonState = () => {
-        const selectedCount = visibleDeletableRequests.filter(req => selectedUndoRequestIds.has(req.id)).length;
-        const lockSecondsLeft = state.role === "admin" ? getAdminDeleteConfirmLockSecondsLeft() : 0;
-        if (lockSecondsLeft > 0) {
-          deleteSelectedRequestsBtn.textContent = `鎖定中（${lockSecondsLeft}s）`;
-          deleteSelectedRequestsBtn.disabled = true;
-          if (adminDeleteLockHint) adminDeleteLockHint.textContent = ` 管理員確認碼鎖定中，剩餘 ${lockSecondsLeft} 秒。`;
-          return;
-        }
-        deleteSelectedRequestsBtn.textContent = `刪除已勾選（${selectedCount}）`;
-        deleteSelectedRequestsBtn.disabled = !(canBatchDeleteRequests && selectedCount > 0);
-        if (adminDeleteLockHint) adminDeleteLockHint.textContent = "";
-      };
-      syncDeleteButtonState();
-      if (state.role === "admin" && getAdminDeleteConfirmLockSecondsLeft() > 0) {
-        adminDeleteLockCountdownTimer = setInterval(() => {
-          if (!deleteSelectedRequestsBtn.isConnected) {
-            stopAdminDeleteLockCountdown();
-            return;
-          }
-          syncDeleteButtonState();
-          if (getAdminDeleteConfirmLockSecondsLeft() <= 0) {
-            stopAdminDeleteLockCountdown();
-          }
-        }, 1000);
-      }
+      const exchangeKeywordFilter = host.querySelector("#exchangeKeywordFilter");
+      const exchangeMaxRows = host.querySelector("#exchangeMaxRows");
+      const exchangeClientWithDataOnly = host.querySelector("#exchangeClientWithDataOnly");
+      const toggleExchangeFilterBtn = host.querySelector("#toggleExchangeFilterBtn");
+      const exchangeUpdateBtn = host.querySelector("#exchangeUpdateBtn");
+      const exchangeDeleteBtn = host.querySelector("#exchangeDeleteBtn");
+      const exchangeSelectAll = host.querySelector("#exchangeSelectAll");
+      const exchangeSelectAllBtn = host.querySelector("#exchangeSelectAllBtn");
+      const exchangeBulkDeleteBtn = host.querySelector("#exchangeBulkDeleteBtn");
+      const exchangeExportSelectedBtn = host.querySelector("#exchangeExportSelectedBtn");
 
       exportExchangeExcelBtn.addEventListener("click", exportTokenExchangesExcel);
+      if (resetExchangeFilterBtn) {
+        resetExchangeFilterBtn.addEventListener("click", () => {
+          state.tokenExchangeFilter = {
+            period: "本月",
+            clientName: "全部個案",
+            startDate: "",
+            endDate: "",
+            keyword: "",
+            maxRows: 20,
+            onlyWithData: false,
+            showFilterPanel: false
+          };
+          renderTokens();
+        });
+      }
 
       exchangePeriodFilter.addEventListener("change", () => {
         state.tokenExchangeFilter.period = exchangePeriodFilter.value;
@@ -2774,92 +3080,42 @@
         state.tokenExchangeFilter.endDate = exchangeEndDate.value;
         renderTokens();
       });
-      requestStatusFilterSelect.addEventListener("change", () => {
-        state.tokenUndoRequestStatusFilter = requestStatusFilterSelect.value;
-        renderTokens();
-      });
-      requestSelectAll.addEventListener("change", () => {
-        if (requestSelectAll.checked) {
-          visibleDeletableRequests.forEach(req => selectedUndoRequestIds.add(req.id));
-        } else {
-          visibleDeletableRequests.forEach(req => selectedUndoRequestIds.delete(req.id));
-        }
-        state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
-        renderTokens();
-      });
-      selectPendingRequestsBtn.addEventListener("click", () => {
-        if (!canBatchDeleteRequests) {
-          return alert("僅老師/督導/管理員可使用此功能");
-        }
-        visibleDeletableRequests.forEach(req => selectedUndoRequestIds.delete(req.id));
-        visibleDeletableRequests.forEach(req => {
-          if (req.status === "pending") selectedUndoRequestIds.add(req.id);
+      if (toggleExchangeFilterBtn) {
+        toggleExchangeFilterBtn.addEventListener("click", () => {
+          state.tokenExchangeFilter.showFilterPanel = !shouldShowExchangeFilterPanel;
+          renderTokens();
         });
-        state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
-        renderTokens();
-      });
-      undoDeleteRequestsBtn.addEventListener("click", () => {
-        const restored = consumeTokenUndoDeleteDraft();
-        if (!restored.length) return alert("沒有可復原的刪除資料，或已逾時");
-        const existingIds = new Set((state.tokenUndoRequests || []).map(req => req.id));
-        const merged = restored.filter(req => !existingIds.has(req.id)).concat(state.tokenUndoRequests || []);
-        state.tokenUndoRequests = merged;
-        log("復原撤銷申請", `已復原 ${restored.length} 筆`);
-        renderTokens();
-      });
-      deleteSelectedRequestsBtn.addEventListener("click", () => {
-        if (!canBatchDeleteRequests) {
-          return alert("僅老師/督導/管理員可批次刪除");
-        }
-        const selectedIds = new Set(Array.isArray(state.tokenUndoSelectedIds) ? state.tokenUndoSelectedIds : []);
-        if (!selectedIds.size) return alert("請先勾選要刪除的申請");
-        const selectedRequests = (state.tokenUndoRequests || []).filter(req => selectedIds.has(req.id) && deletableUndoRequestIds.has(req.id));
-        if (!selectedRequests.length) {
-          state.tokenUndoSelectedIds = [];
-          return renderTokens();
-        }
-        const pending = selectedRequests.filter(req => req.status === "pending").length;
-        const approved = selectedRequests.filter(req => req.status === "approved").length;
-        const rejected = selectedRequests.filter(req => req.status === "rejected").length;
-        const previewLines = selectedRequests.slice(0, 5).map((req, idx) => {
-          const statusText = req.status === "pending" ? "待審" : (req.status === "approved" ? "已核准" : "已駁回");
-          return `${idx + 1}. ${req.clientName} / ${req.rewardItem} / ${req.cost} / ${statusText}`;
-        }).join("\\n");
-        const remainCount = Math.max(0, selectedRequests.length - 5);
-        const previewTail = remainCount > 0 ? `\\n...還有 ${remainCount} 筆` : "";
-        const yes = confirm(`確定刪除已勾選申請？\n共 ${selectedRequests.length} 筆（待審 ${pending} / 已核准 ${approved} / 已駁回 ${rejected}）\n\n預覽：\n${previewLines}${previewTail}`);
-        if (!yes) return;
-        if (state.role === "admin") {
-          const lockSecondsLeft = getAdminDeleteConfirmLockSecondsLeft();
-          if (lockSecondsLeft > 0) {
-            log("刪除確認碼鎖定", `管理員 ${getCurrentActor()} 仍在鎖定中，剩餘 ${lockSecondsLeft} 秒`);
-            return alert(`確認碼已鎖定，請 ${lockSecondsLeft} 秒後再試`);
+      }
+      if (exchangeKeywordFilter) {
+        exchangeKeywordFilter.value = String(f.keyword || "");
+        exchangeKeywordFilter.addEventListener("change", () => {
+          state.tokenExchangeFilter.keyword = exchangeKeywordFilter.value.trim();
+          renderTokens();
+        });
+        exchangeKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          state.tokenExchangeFilter.keyword = exchangeKeywordFilter.value.trim();
+          renderTokens();
+        });
+      }
+      if (exchangeMaxRows) {
+        exchangeMaxRows.value = String(safeMaxRows);
+        exchangeMaxRows.addEventListener("change", () => {
+          const nextMaxRows = Number(exchangeMaxRows.value);
+          state.tokenExchangeFilter.maxRows = [20, 50, 100, 200].includes(nextMaxRows) ? nextMaxRows : 20;
+          renderTokens();
+        });
+      }
+      if (exchangeClientWithDataOnly) {
+        exchangeClientWithDataOnly.addEventListener("change", () => {
+          state.tokenExchangeFilter.onlyWithData = exchangeClientWithDataOnly.checked;
+          if (state.tokenExchangeFilter.onlyWithData && state.tokenExchangeFilter.clientName !== "全部個案" && !clientsWithExchangeData.has(state.tokenExchangeFilter.clientName)) {
+            state.tokenExchangeFilter.clientName = "全部個案";
           }
-          const code = prompt("管理員二次確認：請輸入 DELETE 才能繼續刪除", "");
-          if (String(code || "").trim() !== "DELETE") {
-            adminDeleteConfirmFailCount += 1;
-            log("刪除確認碼錯誤", `管理員 ${getCurrentActor()} 第 ${adminDeleteConfirmFailCount} 次輸入錯誤`);
-            if (adminDeleteConfirmFailCount >= 3) {
-              adminDeleteConfirmFailCount = 0;
-              adminDeleteConfirmLockedUntil = Date.now() + 30000;
-              log("刪除確認碼鎖定", `管理員 ${getCurrentActor()} 連續輸錯 3 次，鎖定 30 秒`);
-              renderTokens();
-              return alert("確認碼連續錯誤 3 次，已鎖定 30 秒");
-            }
-            const remain = 3 - adminDeleteConfirmFailCount;
-            return alert(`確認碼錯誤，已取消刪除（再錯 ${remain} 次將鎖定 30 秒）`);
-          }
-          log("刪除確認碼驗證", `管理員 ${getCurrentActor()} 驗證成功`);
-          adminDeleteConfirmFailCount = 0;
-          adminDeleteConfirmLockedUntil = 0;
-        }
-        setTokenUndoDeleteDraft(selectedRequests);
-        const deletableSelectedIds = new Set(selectedRequests.map(req => req.id));
-        state.tokenUndoRequests = (state.tokenUndoRequests || []).filter(req => !deletableSelectedIds.has(req.id));
-        state.tokenUndoSelectedIds = [];
-        log("刪除撤銷申請", `共 ${selectedRequests.length} 筆（待審 ${pending} / 已核准 ${approved} / 已駁回 ${rejected}）`);
-        renderTokens();
-      });
+          renderTokens();
+        });
+      }
 
       exchangeForm.addEventListener("submit", e => {
         e.preventDefault();
@@ -2897,6 +3153,7 @@
           createdAtIso: now.toISOString(),
           redeemedAtIso: redeemAt.toISOString(),
           redeemDate: exchangeDate,
+          rewardId: reward.id,
           clientName,
           rewardItem: reward.item,
           cost,
@@ -2912,228 +3169,193 @@
         renderTokens();
       });
 
-      exchangeTable.innerHTML = filteredExchanges.slice(0, 50).map(x => {
-        const pendingReq = pendingRequestByExchangeId[x.id];
-        const undoAllowed = !x.isVoided && isExchangeUndoAllowed(x);
-        let opLabel = "逾時";
-        let opDisabled = "disabled";
-        if (x.isVoided) {
-          opLabel = "已撤銷";
-        } else if (pendingReq) {
-          opLabel = "待審";
-        } else if (undoAllowed) {
-          opLabel = state.role === "teacher" ? "申請撤銷" : "需申請";
-          opDisabled = state.role === "teacher" ? "" : "disabled";
-        }
-        const voidInfo = x.isVoided
-          ? `已撤銷：${x.voidReason}<br><span class="mini">${x.voidedAt} / ${x.voidedBy}</span>`
-          : (pendingReq ? `待審：${pendingReq.reason}<br><span class="mini">${pendingReq.createdAt} / ${pendingReq.requestedBy}</span>` : "-");
-        return `
-        <tr>
-          <td>${x.dateTime}</td>
-          <td>${x.clientName}</td>
-          <td>${x.rewardItem}</td>
-          <td>${x.cost}</td>
-          <td>${x.content}</td>
-          <td>${x.createdBy}</td>
-          <td>${voidInfo}</td>
-          <td><button class="btn danger" data-exchange-undo="${x.id}" ${opDisabled}>${opLabel}</button></td>
-        </tr>
-      `;
-      }).join("") || "<tr><td colspan='8'>尚無兌換紀錄</td></tr>";
+      if (exchangeUpdateBtn) {
+        exchangeUpdateBtn.addEventListener("click", () => {
+          if (!state.selectedExchangeForEdit) return alert("請先按管理載入兌換紀錄");
+          const target = state.tokenExchanges.find(x => x.id === state.selectedExchangeForEdit);
+          if (!target) return;
+          if (!canEditCareRecordByRole(target)) return alert("目前權限不可修改此兌換紀錄");
+          const fd = new FormData(exchangeForm);
+          const reward = state.tokenShops.find(r => r.id === fd.get("rewardId"));
+          if (!reward) return alert("請先選擇兌換項目");
+          const clientName = String(fd.get("clientName"));
+          const exchangeDate = String(fd.get("exchangeDate") || "").trim() || today();
+          const rawCustomCost = String(fd.get("customCost") || "").trim();
+          const cost = rawCustomCost === "" ? Number(reward.cost || 0) : Number(rawCustomCost);
+          if (Number.isNaN(cost) || cost < 0) return alert("扣點必須是 0 以上數字");
+          const content = String(fd.get("customContent") || "").trim() || reward.content || "未設定內容";
 
+          const now = new Date();
+          const [yy, mm, dd] = exchangeDate.split("-").map(Number);
+          const redeemAt = new Date(now);
+          if (Number.isFinite(yy) && Number.isFinite(mm) && Number.isFinite(dd)) {
+            redeemAt.setFullYear(yy, mm - 1, dd);
+          }
+          const hh = String(now.getHours()).padStart(2, "0");
+          const mi = String(now.getMinutes()).padStart(2, "0");
+          const ss = String(now.getSeconds()).padStart(2, "0");
+
+          target.dateTime = `${exchangeDate} ${hh}:${mi}:${ss}`;
+          target.redeemedAtIso = redeemAt.toISOString();
+          target.redeemDate = exchangeDate;
+          target.rewardId = reward.id;
+          target.clientName = clientName;
+          target.rewardItem = reward.item;
+          target.cost = cost;
+          target.content = content;
+          log("更新兌換紀錄", `${clientName} / ${reward.item} / ${cost}`);
+          renderTokens();
+        });
+      }
+
+      if (exchangeDeleteBtn) {
+        exchangeDeleteBtn.addEventListener("click", () => {
+          if (!state.selectedExchangeForEdit) return alert("請先按管理載入兌換紀錄");
+          const idx = state.tokenExchanges.findIndex(x => x.id === state.selectedExchangeForEdit);
+          if (idx < 0) return;
+          if (!assertOwnerBeforeDelete(state.tokenExchanges[idx], "兌換紀錄")) return;
+          const removed = state.tokenExchanges.splice(idx, 1)[0];
+          state.selectedExchangeForEdit = null;
+          log("刪除兌換紀錄", `${removed.clientName || "-"} / ${removed.rewardItem || "-"}`);
+          renderTokens();
+        });
+      }
+
+      exchangeTable.innerHTML = visibleExchangeRows.map(x => `
+        <tr>
+          <td><input type="checkbox" data-exchange-select="${x.id}" aria-label="勾選兌換紀錄 ${x.clientName || ""}"></td>
+          <td>${x.redeemDate || String(x.dateTime || "").slice(0, 10)}</td>
+          <td>${x.clientName || "-"}</td>
+          <td>${x.rewardItem || x.item || x.rewardName || "-"}</td>
+          <td>${x.content || "-"}</td>
+          <td>${x.cost}</td>
+          <td><button class="btn" data-exchange-manage="${x.id}">管理</button></td>
+        </tr>
+      `).join("") || "<tr><td colspan='7'>尚無兌換紀錄</td></tr>";
+
+      function syncExchangeSelectAllState() {
+        if (!exchangeSelectAll) return;
+        const list = Array.from(exchangeTable.querySelectorAll("[data-exchange-select]"));
+        exchangeSelectAll.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      function setAllExchangeSelection(checked) {
+        exchangeTable.querySelectorAll("[data-exchange-select]").forEach(cb => {
+          cb.checked = checked;
+        });
+        if (exchangeSelectAll) exchangeSelectAll.checked = checked;
+      }
+
+      if (exchangeSelectAll) {
+        exchangeSelectAll.addEventListener("change", e => {
+          setAllExchangeSelection(e.target.checked);
+        });
+      }
+      if (exchangeSelectAllBtn) {
+        exchangeSelectAllBtn.addEventListener("click", () => {
+          const list = Array.from(exchangeTable.querySelectorAll("[data-exchange-select]"));
+          const shouldSelectAll = list.some(cb => !cb.checked);
+          setAllExchangeSelection(shouldSelectAll);
+        });
+      }
+      exchangeTable.addEventListener("change", e => {
+        const cb = e.target.closest("[data-exchange-select]");
+        if (!cb) return;
+        syncExchangeSelectAllState();
+      });
+      if (exchangeBulkDeleteBtn) {
+        exchangeBulkDeleteBtn.addEventListener("click", () => {
+          const selectedIds = Array.from(exchangeTable.querySelectorAll("[data-exchange-select]:checked")).map(cb => cb.dataset.exchangeSelect);
+          if (!selectedIds.length) return alert("請先勾選至少一筆兌換紀錄");
+          if (!confirm(`確定刪除已勾選 ${selectedIds.length} 筆兌換紀錄嗎？`)) return;
+          const selectedSet = new Set(selectedIds);
+          const removed = [];
+          let denied = 0;
+          state.tokenExchanges = state.tokenExchanges.filter(row => {
+            if (!selectedSet.has(row.id)) return true;
+            if (!assertOwnerBeforeDelete(row, "兌換紀錄")) {
+              denied += 1;
+              return true;
+            }
+            removed.push(row);
+            return false;
+          });
+          if (!removed.length) return alert("沒有可刪除的勾選兌換紀錄");
+          if (state.selectedExchangeForEdit && selectedSet.has(state.selectedExchangeForEdit)) {
+            state.selectedExchangeForEdit = null;
+          }
+          log("批次刪除兌換紀錄", `成功 ${removed.length} 筆${denied ? `，權限不足 ${denied} 筆` : ""}`);
+          renderTokens();
+        });
+      }
+      if (exchangeExportSelectedBtn) {
+        exchangeExportSelectedBtn.addEventListener("click", () => {
+          const selectedIds = Array.from(exchangeTable.querySelectorAll("[data-exchange-select]:checked")).map(cb => cb.dataset.exchangeSelect);
+          if (!selectedIds.length) return alert("請先勾選至少一筆兌換紀錄");
+          const selectedSet = new Set(selectedIds);
+          const rows = filteredExchanges
+            .filter(x => selectedSet.has(x.id))
+            .map(x => ({
+              日期: x.redeemDate || String(x.dateTime || "").slice(0, 10),
+              個案: x.clientName,
+              兌換商品: x.rewardItem || x.item || x.rewardName || "",
+              兌換內容: x.content || "",
+              兌換金額: x.cost
+            }));
+          if (!rows.length) return alert("目前勾選資料不在篩選結果內，請重新勾選");
+          if (window.XLSX) {
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.json_to_sheet(rows);
+            XLSX.utils.book_append_sheet(wb, ws, "兌換勾選");
+            XLSX.writeFile(wb, `smart-care-token-exchanges-selected-${today()}.xlsx`);
+          } else {
+            const header = ["日期", "個案", "兌換商品", "兌換內容", "兌換金額"];
+            const csv = [
+              header.join(","),
+              ...rows.map(r => header.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))
+            ].join("\n");
+            const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+            const a = document.createElement("a");
+            a.href = URL.createObjectURL(blob);
+            a.download = `smart-care-token-exchanges-selected-${today()}.csv`;
+            a.click();
+            URL.revokeObjectURL(a.href);
+          }
+          log("匯出勾選兌換紀錄", `共 ${rows.length} 筆`);
+        });
+      }
       exchangeTable.addEventListener("click", e => {
         const btn = e.target.closest("button");
-        if (!btn || !btn.dataset.exchangeUndo) return;
-        const target = state.tokenExchanges.find(x => x.id === btn.dataset.exchangeUndo);
-        if (!target) return;
-        if (target.isVoided) return alert("此筆已撤銷，無法再次撤銷");
-        if (state.role !== "teacher") {
-          return alert("雙層核准模式：請由教保員先提出撤銷申請，再由督導/管理員於下方審核");
-        }
-        const pendingReq = (state.tokenUndoRequests || []).find(r => r.exchangeId === target.id && r.status === "pending");
-        if (pendingReq) return alert("此筆已有待審撤銷申請");
-        if (!isExchangeUndoAllowed(target)) {
-          return alert(`已超過撤銷時限（${state.undoWindowMinutes} 分鐘）`);
-        }
-        const reason = prompt("請輸入撤銷申請原因（必填）", "誤操作");
-        if (!reason || !reason.trim()) return alert("撤銷原因為必填");
-        const yes = confirm(`確定送出撤銷申請？\n個案：${target.clientName}\n項目：${target.rewardItem}\n扣點：${target.cost}\n原因：${reason}`);
-        if (!yes) return;
-        (state.tokenUndoRequests || (state.tokenUndoRequests = [])).unshift({
-          id: id(),
-          exchangeId: target.id,
-          createdAt: new Date().toLocaleString("zh-TW"),
-          createdAtIso: new Date().toISOString(),
-          clientName: target.clientName,
-          rewardItem: target.rewardItem,
-          cost: target.cost,
-          reason: reason.trim(),
-          requestedBy: getCurrentActor(),
-          status: "pending",
-          reviewedAt: "",
-          reviewedBy: "",
-          reviewComment: ""
-        });
-        log("提交撤銷申請", `${target.clientName} / ${target.rewardItem} / ${target.cost} / 原因:${reason}`);
-        renderTokens();
+        if (!btn || !btn.dataset.exchangeManage) return;
+        const row = state.tokenExchanges.find(x => x.id === btn.dataset.exchangeManage);
+        if (!row) return;
+        state.selectedExchangeForEdit = row.id;
+        exchangeForm.elements["clientName"].value = row.clientName || state.clients[0]?.name || "";
+        const reward = state.tokenShops.find(r => r.id === row.rewardId)
+          || state.tokenShops.find(r => r.item === (row.rewardItem || row.item || row.rewardName));
+        if (reward) exchangeForm.elements["rewardId"].value = reward.id;
+        exchangeForm.elements["exchangeDate"].value = row.redeemDate || String(row.dateTime || "").slice(0, 10) || today();
+        exchangeForm.elements["customCost"].value = Number(row.cost || 0);
+        exchangeForm.elements["customContent"].value = row.content || "";
       });
-
-      requestTable.innerHTML = filteredUndoRequests.slice(0, 80).map(req => {
-        const statusText = req.status === "pending" ? "待審" : (req.status === "approved" ? "已核准" : "已駁回");
-        const reviewInfo = req.reviewedAt ? `${req.reviewedAt} / ${req.reviewedBy}${req.reviewComment ? `<br><span class="mini">${req.reviewComment}</span>` : ""}` : "-";
-        const canReview = req.status === "pending" && (state.role === "supervisor" || state.role === "admin") && req.requestedBy !== getCurrentActor();
-        const canDeleteThisRequest = deletableUndoRequestIds.has(req.id);
-        return `
-          <tr>
-            <td><input type="checkbox" data-request-select="${req.id}" ${selectedUndoRequestIds.has(req.id) ? "checked" : ""} ${canDeleteThisRequest ? "" : "disabled"}></td>
-            <td>${req.createdAt}</td>
-            <td>${req.clientName}</td>
-            <td>${req.rewardItem}</td>
-            <td>${req.cost}</td>
-            <td>${req.reason}</td>
-            <td>${req.requestedBy}</td>
-            <td>${statusText}</td>
-            <td>${reviewInfo}</td>
-            <td>
-              <div class="actions">
-                <button class="btn good" data-request-approve="${req.id}" ${canReview ? "" : "disabled"}>核准</button>
-                <button class="btn warn" data-request-reject="${req.id}" ${canReview ? "" : "disabled"}>駁回</button>
-              </div>
-            </td>
-          </tr>
-        `;
-      }).join("") || "<tr><td colspan='10'>尚無撤銷申請</td></tr>";
-
-      requestTable.querySelectorAll("[data-request-select]").forEach(input => {
-        input.addEventListener("change", () => {
-          const requestId = input.dataset.requestSelect;
-          if (!requestId) return;
-          if (input.checked) selectedUndoRequestIds.add(requestId);
-          else selectedUndoRequestIds.delete(requestId);
-          state.tokenUndoSelectedIds = Array.from(selectedUndoRequestIds);
-          const visibleIds = visibleDeletableRequests.map(req => req.id);
-          const allVisibleChecked = visibleIds.length > 0 && visibleIds.every(id => selectedUndoRequestIds.has(id));
-          requestSelectAll.checked = allVisibleChecked;
-          syncDeleteButtonState();
-        });
-      });
-
-      requestTable.addEventListener("click", e => {
-        const btn = e.target.closest("button");
-        if (!btn) return;
-        const requestId = btn.dataset.requestApprove || btn.dataset.requestReject;
-        if (!requestId) return;
-        const req = (state.tokenUndoRequests || []).find(x => x.id === requestId);
-        if (!req || req.status !== "pending") return;
-        if (!(state.role === "supervisor" || state.role === "admin")) {
-          return alert("僅督導或管理員可審核撤銷申請");
-        }
-        if (req.requestedBy === getCurrentActor()) {
-          return alert("不可自行核准或駁回自己提出的撤銷申請");
-        }
-        const exchange = state.tokenExchanges.find(x => x.id === req.exchangeId);
-        if (!exchange) {
-          req.status = "rejected";
-          req.reviewedAt = new Date().toLocaleString("zh-TW");
-          req.reviewedBy = getCurrentActor();
-          req.reviewComment = "原兌換紀錄不存在";
-          log("駁回撤銷申請", `${req.clientName} / ${req.rewardItem} / 原因:原紀錄不存在`);
-          return renderTokens();
-        }
-
-        if (btn.dataset.requestApprove) {
-          if (exchange.isVoided) {
-            req.status = "rejected";
-            req.reviewedAt = new Date().toLocaleString("zh-TW");
-            req.reviewedBy = getCurrentActor();
-            req.reviewComment = "原兌換紀錄已撤銷";
-            log("駁回撤銷申請", `${req.clientName} / ${req.rewardItem} / 原因:原紀錄已撤銷`);
-            return renderTokens();
-          }
-          const yes = confirm(`確定核准撤銷？\n個案：${req.clientName}\n項目：${req.rewardItem}\n扣點：${req.cost}\n申請原因：${req.reason}`);
-          if (!yes) return;
-          exchange.isVoided = true;
-          exchange.voidedAt = new Date().toLocaleString("zh-TW");
-          exchange.voidedBy = getCurrentActor();
-          exchange.voidReason = req.reason;
-          exchange.undoRequestId = req.id;
-
-          req.status = "approved";
-          req.reviewedAt = exchange.voidedAt;
-          req.reviewedBy = exchange.voidedBy;
-          req.reviewComment = "核准撤銷";
-
-          state.tokenUndoLogs.unshift({
-            id: id(),
-            exchangeId: exchange.id,
-            voidedAt: exchange.voidedAt,
-            clientName: exchange.clientName,
-            rewardItem: exchange.rewardItem,
-            cost: exchange.cost,
-            reason: exchange.voidReason,
-            requestedBy: req.requestedBy,
-            reviewedBy: req.reviewedBy
-          });
-          log("核准撤銷申請", `${exchange.clientName} / ${exchange.rewardItem} / ${exchange.cost} / 申請人:${req.requestedBy}`);
-          return renderTokens();
-        }
-
-        if (btn.dataset.requestReject) {
-          const reason = prompt("請輸入駁回原因（必填）", "資訊不足");
-          if (!reason || !reason.trim()) return alert("駁回原因為必填");
-          req.status = "rejected";
-          req.reviewedAt = new Date().toLocaleString("zh-TW");
-          req.reviewedBy = getCurrentActor();
-          req.reviewComment = reason.trim();
-          log("駁回撤銷申請", `${req.clientName} / ${req.rewardItem} / 原因:${reason.trim()}`);
-          return renderTokens();
-        }
-      });
-
-      undoTable.innerHTML = state.tokenUndoLogs.slice(0, 50).map(x => `
-        <tr>
-          <td>${x.voidedAt}</td>
-          <td>${x.clientName}</td>
-          <td>${x.rewardItem}</td>
-          <td>${x.cost}</td>
-          <td>${x.reason}</td>
-          <td>${x.requestedBy || "-"}</td>
-          <td>${x.reviewedBy || x.voidedBy || "-"}</td>
-        </tr>
-      `).join("") || "<tr><td colspan='7'>尚無撤銷紀錄</td></tr>";
     }
 
     function exportTokenExchangesExcel() {
-      const requestById = {};
-      (state.tokenUndoRequests || []).forEach(req => {
-        requestById[req.id] = req;
-      });
       const rows = getFilteredTokenExchanges().map(x => ({
-        時間: x.dateTime,
+        日期: x.redeemDate || String(x.dateTime || "").slice(0, 10),
         個案: x.clientName,
-        項目: x.rewardItem,
-        扣點: x.cost,
-        內容: x.content,
-        操作人: x.createdBy,
-        是否撤銷: x.isVoided ? "是" : "否",
-        撤銷時間: x.voidedAt || "",
-        撤銷原因: x.voidReason || "",
-        撤銷人: x.voidedBy || "",
-        申請人: (requestById[x.undoRequestId] && requestById[x.undoRequestId].requestedBy) || "",
-        審核狀態: (requestById[x.undoRequestId] && requestById[x.undoRequestId].status) || "",
-        審核人: (requestById[x.undoRequestId] && requestById[x.undoRequestId].reviewedBy) || "",
-        審核時間: (requestById[x.undoRequestId] && requestById[x.undoRequestId].reviewedAt) || "",
-        審核備註: (requestById[x.undoRequestId] && requestById[x.undoRequestId].reviewComment) || ""
+        兌換商品: x.rewardItem || x.item || x.rewardName || "",
+        兌換內容: x.content || "",
+        兌換金額: x.cost
       }));
 
       if (window.XLSX) {
         const wb = XLSX.utils.book_new();
-        const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 時間: "", 個案: "", 項目: "", 扣點: "", 內容: "", 操作人: "", 是否撤銷: "", 撤銷時間: "", 撤銷原因: "", 撤銷人: "", 申請人: "", 審核狀態: "", 審核人: "", 審核時間: "", 審核備註: "" }]);
+        const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 日期: "", 個案: "", 兌換商品: "", 兌換內容: "", 兌換金額: "" }]);
         XLSX.utils.book_append_sheet(wb, ws, "兌換紀錄");
         XLSX.writeFile(wb, `smart-care-token-exchanges-${today()}.xlsx`);
       } else {
-        const header = ["時間", "個案", "項目", "扣點", "內容", "操作人", "是否撤銷", "撤銷時間", "撤銷原因", "撤銷人", "申請人", "審核狀態", "審核人", "審核時間", "審核備註"];
+        const header = ["日期", "個案", "兌換商品", "兌換內容", "兌換金額"];
         const csv = [
           header.join(","),
           ...rows.map(r => header.map(h => `"${String(r[h] || "").replace(/"/g, '""')}"`).join(","))
@@ -3146,34 +3368,79 @@
         URL.revokeObjectURL(a.href);
       }
 
-      log("匯出 Excel", "已匯出兌換紀錄（含申請與審核欄位）");
+      log("匯出 Excel", "已匯出兌換紀錄（日期/個案/兌換商品/兌換內容/兌換金額）");
     }
 
     function getFilteredTokenExchanges() {
-      const f = state.tokenExchangeFilter || { period: "本月", clientName: "全部個案", startDate: "", endDate: "" };
+      const f = state.tokenExchangeFilter || { period: "本月", clientName: "全部個案", startDate: "", endDate: "", keyword: "", maxRows: 20, onlyWithData: false, showFilterPanel: false };
       const now = new Date();
-      const currentQuarter = Math.floor((now.getMonth() + 3) / 3);
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const currentQuarter = Math.floor((currentMonth + 2) / 3);
+      const currentMonthKey = `${currentYear}-${String(currentMonth).padStart(2, "0")}`;
+      const keyword = String(f.keyword || "").trim().toLowerCase();
+
+      const resolveExchangeDay = (x) => {
+        const candidates = [
+          String(x.redeemDate || ""),
+          String(x.dateTime || "").slice(0, 10),
+          String(x.redeemedAtIso || "").slice(0, 10),
+          String(x.createdAtIso || "").slice(0, 10)
+        ];
+        for (const raw of candidates) {
+          const day = String(raw || "").trim().replace(/\//g, "-");
+          const m = /^([0-9]{4})-([0-9]{1,2})-([0-9]{1,2})$/.exec(day);
+          if (!m) continue;
+          const y = Number(m[1]);
+          const mm = Number(m[2]);
+          const dd = Number(m[3]);
+          if (!Number.isFinite(y) || !Number.isFinite(mm) || !Number.isFinite(dd)) continue;
+          const normalized = `${String(y).padStart(4, "0")}-${String(mm).padStart(2, "0")}-${String(dd).padStart(2, "0")}`;
+          return { day: normalized, year: y, month: mm };
+        }
+        return { day: "", year: NaN, month: NaN };
+      };
 
       return state.tokenExchanges.filter(x => {
         const clientOk = f.clientName === "全部個案" || x.clientName === f.clientName;
         if (!clientOk) return false;
-        const iso = String(x.redeemedAtIso || x.createdAtIso || "");
-        if (!iso) return true;
-        const d = new Date(iso);
-        if (f.period === "全部") return true;
+        const rewardName = x.rewardItem || x.item || x.rewardName || "";
+        const parsed = resolveExchangeDay(x);
+        const day = parsed.day;
+        const y = parsed.year;
+        const m = parsed.month;
+        const createdMonthMatch = String(x.createdAtIso || "").startsWith(currentMonthKey);
+        let periodOk = true;
         if (f.period === "本月") {
-          return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+          periodOk = Number.isFinite(y) && Number.isFinite(m)
+            ? ((y === currentYear && m === currentMonth) || createdMonthMatch)
+            : createdMonthMatch || true;
         }
         if (f.period === "本季") {
-          const q = Math.floor((d.getMonth() + 3) / 3);
-          return d.getFullYear() === now.getFullYear() && q === currentQuarter;
+          if (Number.isFinite(y) && Number.isFinite(m)) {
+            const q = Math.floor((m + 2) / 3);
+            const createdYear = Number(String(x.createdAtIso || "").slice(0, 4));
+            const createdMonth = Number(String(x.createdAtIso || "").slice(5, 7));
+            const createdQuarter = Number.isFinite(createdMonth) ? Math.floor((createdMonth + 2) / 3) : NaN;
+            const createdQuarterOk = Number.isFinite(createdYear) && Number.isFinite(createdQuarter)
+              ? (createdYear === currentYear && createdQuarter === currentQuarter)
+              : false;
+            periodOk = (y === currentYear && q === currentQuarter) || createdQuarterOk;
+          } else {
+            periodOk = true;
+          }
         }
         if (f.period === "自訂") {
-          if (!f.startDate || !f.endDate) return true;
-          const day = String(x.redeemDate || "") || iso.slice(0, 10);
-          return day >= f.startDate && day <= f.endDate;
+          if (!f.startDate || !f.endDate) periodOk = true;
+          else {
+            const dayForCompare = day || String(x.createdAtIso || "").slice(0, 10);
+            periodOk = dayForCompare ? (dayForCompare >= f.startDate && dayForCompare <= f.endDate) : true;
+          }
         }
-        return true;
+        if (!periodOk) return false;
+        if (!keyword) return true;
+        const haystack = `${x.clientName || ""} ${rewardName} ${x.content || ""} ${x.cost || ""} ${x.redeemDate || ""} ${x.dateTime || ""}`.toLowerCase();
+        return haystack.includes(keyword);
       });
     }
 
@@ -3216,6 +3483,53 @@
       const permittedClients = getPermittedClientNames();
       const clientOptions = permittedClients.map(name => `<option>${name}</option>`).join("");
       const serviceFilter = state.serviceFilter || { category: "全部", keyword: "", clientName: "全部個案" };
+      const emotionBehaviorFilter = {
+        emotionKeyword: "",
+        emotionDateFrom: "",
+        emotionDateTo: "",
+        emotionMaxRows: 50,
+        emotionShowPanel: false,
+        abcKeyword: "",
+        abcDateFrom: "",
+        abcDateTo: "",
+        abcMaxRows: 60,
+        abcShowPanel: false,
+        ...(state.emotionBehaviorFilter || {})
+      };
+      state.emotionBehaviorFilter = emotionBehaviorFilter;
+      const emotionKeyword = String(emotionBehaviorFilter.emotionKeyword || "").trim().toLowerCase();
+      const abcKeyword = String(emotionBehaviorFilter.abcKeyword || "").trim().toLowerCase();
+      const emotionDateFrom = String(emotionBehaviorFilter.emotionDateFrom || "").trim();
+      const emotionDateTo = String(emotionBehaviorFilter.emotionDateTo || "").trim();
+      const abcDateFrom = String(emotionBehaviorFilter.abcDateFrom || "").trim();
+      const abcDateTo = String(emotionBehaviorFilter.abcDateTo || "").trim();
+      const emotionMaxRows = [20, 50, 100, 200].includes(Number(emotionBehaviorFilter.emotionMaxRows)) ? Number(emotionBehaviorFilter.emotionMaxRows) : 50;
+      const abcMaxRows = [20, 50, 100, 200].includes(Number(emotionBehaviorFilter.abcMaxRows)) ? Number(emotionBehaviorFilter.abcMaxRows) : 60;
+      const emotionFilterThreshold = 100;
+      const abcFilterThreshold = 120;
+      const formatYmd = dateObj => {
+        const y = dateObj.getFullYear();
+        const m = String(dateObj.getMonth() + 1).padStart(2, "0");
+        const d = String(dateObj.getDate()).padStart(2, "0");
+        return `${y}-${m}-${d}`;
+      };
+      const getDateRangePreset = preset => {
+        const now = new Date();
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        if (preset === "today") {
+          const day = formatYmd(end);
+          return { from: day, to: day };
+        }
+        if (preset === "week") {
+          const start = new Date(end);
+          const day = start.getDay();
+          const mondayOffset = day === 0 ? -6 : 1 - day;
+          start.setDate(start.getDate() + mondayOffset);
+          return { from: formatYmd(start), to: formatYmd(end) };
+        }
+        const start = new Date(end.getFullYear(), end.getMonth(), 1);
+        return { from: formatYmd(start), to: formatYmd(end) };
+      };
       const behaviorPresetOptions = behaviorOptions.filter(x => x !== "自訂");
       const splitBehaviors = value => String(value || "")
         .split(/[、,，\n]/)
@@ -3253,6 +3567,27 @@
               <button class="btn danger" type="button" id="emotionDeleteBtn">刪除</button>
             </div>
           </form>
+          <div class="actions" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+            <p class="mini" style="margin:0;" id="emotionSummaryLine"></p>
+            <div class="actions" style="margin:0;">
+              <button class="btn good" type="button" id="emotionExportFilteredBtn">匯出目前篩選</button>
+              <button class="btn" type="button" id="toggleEmotionFilterBtn">展開篩選</button>
+            </div>
+          </div>
+          <div id="emotionFilterPanel" style="display:none;">
+            <div class="grid-4" style="margin-bottom:8px;">
+              <div class="field"><label>關鍵字</label><input id="emotionKeywordFilter" value="${emotionBehaviorFilter.emotionKeyword || ""}" placeholder="個案/情緒/地點/說明"></div>
+              <div class="field"><label>起始日期</label><input type="date" id="emotionDateFrom" value="${emotionBehaviorFilter.emotionDateFrom || ""}"></div>
+              <div class="field"><label>結束日期</label><input type="date" id="emotionDateTo" value="${emotionBehaviorFilter.emotionDateTo || ""}"></div>
+              <div class="field"><label>顯示筆數</label><select id="emotionMaxRows"><option value="20" ${emotionMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${emotionMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${emotionMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${emotionMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+            </div>
+            <div class="actions" style="margin-bottom:8px;">
+              <button class="btn" type="button" id="emotionDateTodayBtn">今天</button>
+              <button class="btn" type="button" id="emotionDateWeekBtn">本週</button>
+              <button class="btn" type="button" id="emotionDateMonthBtn">本月</button>
+              <button class="btn warn" type="button" id="emotionFilterResetBtn">清除篩選</button>
+            </div>
+          </div>
           <table>
             <thead><tr><th>日期</th><th>個案</th><th>情緒</th><th>強度</th><th>持續</th><th>地點/活動</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="emotionTable"></tbody>
@@ -3286,6 +3621,27 @@
               <button class="btn danger" type="button" id="abcDeleteBtn">刪除</button>
             </div>
           </form>
+          <div class="actions" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+            <p class="mini" style="margin:0;" id="abcSummaryLine"></p>
+            <div class="actions" style="margin:0;">
+              <button class="btn good" type="button" id="abcExportFilteredBtn">匯出目前篩選</button>
+              <button class="btn" type="button" id="toggleAbcFilterBtn">展開篩選</button>
+            </div>
+          </div>
+          <div id="abcFilterPanel" style="display:none;">
+            <div class="grid-4" style="margin-bottom:8px;">
+              <div class="field"><label>關鍵字</label><input id="abcKeywordFilter" value="${emotionBehaviorFilter.abcKeyword || ""}" placeholder="個案/A/B/C/地點/說明"></div>
+              <div class="field"><label>起始日期</label><input type="date" id="abcDateFrom" value="${emotionBehaviorFilter.abcDateFrom || ""}"></div>
+              <div class="field"><label>結束日期</label><input type="date" id="abcDateTo" value="${emotionBehaviorFilter.abcDateTo || ""}"></div>
+              <div class="field"><label>顯示筆數</label><select id="abcMaxRows"><option value="20" ${abcMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${abcMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${abcMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${abcMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+            </div>
+            <div class="actions" style="margin-bottom:8px;">
+              <button class="btn" type="button" id="abcDateTodayBtn">今天</button>
+              <button class="btn" type="button" id="abcDateWeekBtn">本週</button>
+              <button class="btn" type="button" id="abcDateMonthBtn">本月</button>
+              <button class="btn warn" type="button" id="abcFilterResetBtn">清除篩選</button>
+            </div>
+          </div>
           <div class="actions" style="margin-bottom:8px;">
             <button class="btn" type="button" id="abcSelectAllBtn">全選</button>
             <button class="btn danger" type="button" id="abcBulkDeleteBtn">刪除勾選</button>
@@ -3322,6 +3678,7 @@
             <button class="btn" type="button" id="serviceSelectAllBtn">全選</button>
             <button class="btn danger" type="button" id="serviceBulkDeleteBtn">刪除勾選</button>
             <button class="btn good" type="button" id="serviceExportSelectedBtn">匯出勾選</button>
+            <button class="btn good" type="button" id="serviceExportFilteredBtn">匯出目前篩選</button>
           </div>
 
           <table>
@@ -3513,10 +3870,17 @@
         renderAll();
       });
 
-      const emotionRows = state.emotionRecords
+      const filteredEmotionRows = state.emotionRecords
         .filter(r => permittedClients.includes(r.clientName))
         .filter(r => state.selectedClient === "全部個案" || r.clientName === state.selectedClient)
-        .slice(0, 50);
+        .filter(r => {
+          if (emotionDateFrom && r.date < emotionDateFrom) return false;
+          if (emotionDateTo && r.date > emotionDateTo) return false;
+          if (!emotionKeyword) return true;
+          const bag = `${r.date || ""} ${r.clientName || ""} ${r.emotion || ""} ${r.location || ""} ${r.activity || ""} ${r.note || ""}`.toLowerCase();
+          return bag.includes(emotionKeyword);
+        });
+      const emotionRows = filteredEmotionRows.slice(0, emotionMaxRows);
       const emotionTable = host.querySelector("#emotionTable");
       emotionTable.innerHTML = emotionRows.map(r => `
         <tr>
@@ -3531,10 +3895,17 @@
         </tr>
       `).join("") || "<tr><td colspan='8'>尚無情緒紀錄</td></tr>";
 
-      const abcRows = state.behaviorEvents
+      const filteredAbcRows = state.behaviorEvents
         .filter(r => permittedClients.includes(r.clientName))
         .filter(r => state.selectedClient === "全部個案" || r.clientName === state.selectedClient)
-        .slice(0, 60);
+        .filter(r => {
+          if (abcDateFrom && r.date < abcDateFrom) return false;
+          if (abcDateTo && r.date > abcDateTo) return false;
+          if (!abcKeyword) return true;
+          const bag = `${r.date || ""} ${r.time || ""} ${r.clientName || ""} ${r.antecedent || ""} ${r.behavior || ""} ${r.consequence || ""} ${r.location || ""} ${r.activity || ""} ${r.note || ""}`.toLowerCase();
+          return bag.includes(abcKeyword);
+        });
+      const abcRows = filteredAbcRows.slice(0, abcMaxRows);
       const abcTable = host.querySelector("#abcTable");
       abcTable.innerHTML = abcRows.map(r => `
         <tr>
@@ -3549,6 +3920,36 @@
           <td><button class="btn" data-abc-manage="${r.id}">管理</button></td>
         </tr>
       `).join("") || "<tr><td colspan='9'>尚無 ABC 事件</td></tr>";
+
+      const emotionSummaryLine = host.querySelector("#emotionSummaryLine");
+      const abcSummaryLine = host.querySelector("#abcSummaryLine");
+      if (emotionSummaryLine) {
+        emotionSummaryLine.textContent = `情緒紀錄共 ${state.emotionRecords.length} 筆，符合篩選 ${filteredEmotionRows.length} 筆，目前顯示 ${emotionRows.length} 筆。`;
+      }
+      if (abcSummaryLine) {
+        abcSummaryLine.textContent = `ABC 事件共 ${state.behaviorEvents.length} 筆，符合篩選 ${filteredAbcRows.length} 筆，目前顯示 ${abcRows.length} 筆。`;
+      }
+
+      const shouldShowEmotionFilterPanel = state.emotionRecords.length > emotionFilterThreshold
+        || !!emotionKeyword
+        || !!emotionDateFrom
+        || !!emotionDateTo
+        || emotionMaxRows !== 50
+        || !!emotionBehaviorFilter.emotionShowPanel;
+      const shouldShowAbcFilterPanel = state.behaviorEvents.length > abcFilterThreshold
+        || !!abcKeyword
+        || !!abcDateFrom
+        || !!abcDateTo
+        || abcMaxRows !== 60
+        || !!emotionBehaviorFilter.abcShowPanel;
+      const emotionFilterPanel = host.querySelector("#emotionFilterPanel");
+      const abcFilterPanel = host.querySelector("#abcFilterPanel");
+      const toggleEmotionFilterBtn = host.querySelector("#toggleEmotionFilterBtn");
+      const toggleAbcFilterBtn = host.querySelector("#toggleAbcFilterBtn");
+      if (emotionFilterPanel) emotionFilterPanel.style.display = shouldShowEmotionFilterPanel ? "block" : "none";
+      if (abcFilterPanel) abcFilterPanel.style.display = shouldShowAbcFilterPanel ? "block" : "none";
+      if (toggleEmotionFilterBtn) toggleEmotionFilterBtn.textContent = shouldShowEmotionFilterPanel ? "收合篩選" : "展開篩選";
+      if (toggleAbcFilterBtn) toggleAbcFilterBtn.textContent = shouldShowAbcFilterPanel ? "收合篩選" : "展開篩選";
 
       const filteredServices = state.serviceRecords.filter(r => {
         const categoryOk = serviceFilter.category === "全部" || r.category === serviceFilter.category;
@@ -3576,10 +3977,13 @@
       const abcSelectAllBtn = host.querySelector("#abcSelectAllBtn");
       const abcBulkDeleteBtn = host.querySelector("#abcBulkDeleteBtn");
       const abcExportSelectedBtn = host.querySelector("#abcExportSelectedBtn");
+      const emotionExportFilteredBtn = host.querySelector("#emotionExportFilteredBtn");
+      const abcExportFilteredBtn = host.querySelector("#abcExportFilteredBtn");
       const serviceSelectAll = host.querySelector("#serviceSelectAll");
       const serviceSelectAllBtn = host.querySelector("#serviceSelectAllBtn");
       const serviceBulkDeleteBtn = host.querySelector("#serviceBulkDeleteBtn");
       const serviceExportSelectedBtn = host.querySelector("#serviceExportSelectedBtn");
+      const serviceExportFilteredBtn = host.querySelector("#serviceExportFilteredBtn");
 
       function exportCareRows(rows, fileBase, sheetName) {
         if (!rows.length) return alert("沒有可匯出的勾選資料");
@@ -3614,6 +4018,77 @@
         if (!selectAllEl) return;
         const list = Array.from(tableEl.querySelectorAll(selector));
         selectAllEl.checked = list.length > 0 && list.every(cb => cb.checked);
+      }
+
+      function createCareExportRow(type, row) {
+        const base = {
+          日期: row.date || "",
+          時間: row.time || "",
+          個案: row.clientName || "",
+          紀錄類型: type,
+          分類: "",
+          情緒: "",
+          強度: "",
+          持續分鐘: "",
+          前因A: "",
+          行為B: "",
+          結果C: "",
+          介入策略: "",
+          處理方式: "",
+          安撫方式: "",
+          處理結果: "",
+          地點: row.location || "",
+          活動: row.activity || "",
+          重點: "",
+          內容: row.detail || row.note || "",
+          恢復分鐘: "",
+          建立者: row.createdBy || ""
+        };
+        if (type === "情緒") {
+          base.情緒 = row.emotion || "";
+          base.強度 = Number(row.intensity || 0);
+          base.持續分鐘 = Number(row.durationMinutes || 0);
+          return base;
+        }
+        if (type === "ABC") {
+          base.前因A = row.antecedent || "";
+          base.行為B = row.behavior || "";
+          base.結果C = row.consequence || "";
+          base.介入策略 = row.strategy || "";
+          base.處理方式 = row.handling || "";
+          base.安撫方式 = row.soothing || "";
+          base.處理結果 = row.handlingResult || "";
+          base.恢復分鐘 = Number(row.recoverMinutes || 0);
+          base.內容 = row.note || "";
+          return base;
+        }
+        if (type === "服務") {
+          base.分類 = row.category || "";
+          base.重點 = row.title || "";
+          base.內容 = row.detail || "";
+          base.地點 = "";
+          base.活動 = "";
+          return base;
+        }
+        return base;
+      }
+
+      if (emotionExportFilteredBtn) {
+        emotionExportFilteredBtn.addEventListener("click", () => {
+          if (!filteredEmotionRows.length) return alert("目前沒有符合篩選的情緒紀錄可匯出");
+          const rowsToExport = filteredEmotionRows.map(r => createCareExportRow("情緒", r));
+          exportCareRows(rowsToExport, "smart-care-emotion-filtered", "情緒篩選");
+          log("匯出情緒篩選結果", `共 ${rowsToExport.length} 筆`);
+        });
+      }
+
+      if (abcExportFilteredBtn) {
+        abcExportFilteredBtn.addEventListener("click", () => {
+          if (!filteredAbcRows.length) return alert("目前沒有符合篩選的 ABC 事件可匯出");
+          const rowsToExport = filteredAbcRows.map(r => createCareExportRow("ABC", r));
+          exportCareRows(rowsToExport, "smart-care-abc-filtered", "ABC篩選");
+          log("匯出ABC篩選結果", `共 ${rowsToExport.length} 筆`);
+        });
       }
 
       if (abcSelectAll) {
@@ -3663,23 +4138,7 @@
           const selectedSet = new Set(selectedIds);
           const rowsToExport = abcRows
             .filter(r => selectedSet.has(r.id))
-            .map(r => ({
-              日期: r.date,
-              時間: r.time,
-              個案: r.clientName,
-              前因A: r.antecedent,
-              行為B: r.behavior,
-              結果C: r.consequence,
-              介入策略: r.strategy,
-              處理方式: r.handling || "",
-              安撫方式: r.soothing || "",
-              處理結果: r.handlingResult || "",
-              地點: r.location || "",
-              活動: r.activity || "",
-              恢復分鐘: r.recoverMinutes || 0,
-              說明: r.note || "",
-              建立者: r.createdBy || ""
-            }));
+            .map(r => createCareExportRow("ABC", r));
           exportCareRows(rowsToExport, "smart-care-abc-selected", "ABC勾選");
           log("匯出勾選 ABC 事件", `共 ${rowsToExport.length} 筆`);
         });
@@ -3732,16 +4191,17 @@
           const selectedSet = new Set(selectedIds);
           const rowsToExport = filteredServices
             .filter(r => selectedSet.has(r.id))
-            .map(r => ({
-              日期: r.date,
-              個案: r.clientName,
-              分類: r.category,
-              重點: r.title || "",
-              內容: r.detail || "",
-              建立者: r.createdBy || ""
-            }));
+            .map(r => createCareExportRow("服務", r));
           exportCareRows(rowsToExport, "smart-care-service-selected", "服務勾選");
           log("匯出勾選服務紀錄", `共 ${rowsToExport.length} 筆`);
+        });
+      }
+      if (serviceExportFilteredBtn) {
+        serviceExportFilteredBtn.addEventListener("click", () => {
+          if (!filteredServices.length) return alert("目前沒有符合篩選的服務紀錄可匯出");
+          const rowsToExport = filteredServices.map(r => createCareExportRow("服務", r));
+          exportCareRows(rowsToExport, "smart-care-service-filtered", "服務篩選");
+          log("匯出服務篩選結果", `共 ${rowsToExport.length} 筆`);
         });
       }
 
@@ -3757,6 +4217,166 @@
         state.serviceFilter.keyword = e.target.value;
         renderEmotion();
       });
+
+      if (toggleEmotionFilterBtn) {
+        toggleEmotionFilterBtn.addEventListener("click", () => {
+          state.emotionBehaviorFilter.emotionShowPanel = !shouldShowEmotionFilterPanel;
+          renderEmotion();
+        });
+      }
+      const emotionKeywordFilter = host.querySelector("#emotionKeywordFilter");
+      if (emotionKeywordFilter) {
+        const applyEmotionKeyword = () => {
+          state.emotionBehaviorFilter.emotionKeyword = emotionKeywordFilter.value.trim();
+          renderEmotion();
+        };
+        emotionKeywordFilter.addEventListener("change", applyEmotionKeyword);
+        emotionKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          applyEmotionKeyword();
+        });
+      }
+      const emotionMaxRowsSelect = host.querySelector("#emotionMaxRows");
+      if (emotionMaxRowsSelect) {
+        emotionMaxRowsSelect.addEventListener("change", () => {
+          const nextMaxRows = Number(emotionMaxRowsSelect.value);
+          state.emotionBehaviorFilter.emotionMaxRows = [20, 50, 100, 200].includes(nextMaxRows) ? nextMaxRows : 50;
+          renderEmotion();
+        });
+      }
+      const emotionDateFromInput = host.querySelector("#emotionDateFrom");
+      if (emotionDateFromInput) {
+        emotionDateFromInput.addEventListener("change", () => {
+          state.emotionBehaviorFilter.emotionDateFrom = emotionDateFromInput.value;
+          renderEmotion();
+        });
+      }
+      const emotionDateToInput = host.querySelector("#emotionDateTo");
+      if (emotionDateToInput) {
+        emotionDateToInput.addEventListener("change", () => {
+          state.emotionBehaviorFilter.emotionDateTo = emotionDateToInput.value;
+          renderEmotion();
+        });
+      }
+      const emotionDateTodayBtn = host.querySelector("#emotionDateTodayBtn");
+      if (emotionDateTodayBtn) {
+        emotionDateTodayBtn.addEventListener("click", () => {
+          const range = getDateRangePreset("today");
+          state.emotionBehaviorFilter.emotionDateFrom = range.from;
+          state.emotionBehaviorFilter.emotionDateTo = range.to;
+          renderEmotion();
+        });
+      }
+      const emotionDateWeekBtn = host.querySelector("#emotionDateWeekBtn");
+      if (emotionDateWeekBtn) {
+        emotionDateWeekBtn.addEventListener("click", () => {
+          const range = getDateRangePreset("week");
+          state.emotionBehaviorFilter.emotionDateFrom = range.from;
+          state.emotionBehaviorFilter.emotionDateTo = range.to;
+          renderEmotion();
+        });
+      }
+      const emotionDateMonthBtn = host.querySelector("#emotionDateMonthBtn");
+      if (emotionDateMonthBtn) {
+        emotionDateMonthBtn.addEventListener("click", () => {
+          const range = getDateRangePreset("month");
+          state.emotionBehaviorFilter.emotionDateFrom = range.from;
+          state.emotionBehaviorFilter.emotionDateTo = range.to;
+          renderEmotion();
+        });
+      }
+      const emotionFilterResetBtn = host.querySelector("#emotionFilterResetBtn");
+      if (emotionFilterResetBtn) {
+        emotionFilterResetBtn.addEventListener("click", () => {
+          state.emotionBehaviorFilter.emotionKeyword = "";
+          state.emotionBehaviorFilter.emotionDateFrom = "";
+          state.emotionBehaviorFilter.emotionDateTo = "";
+          state.emotionBehaviorFilter.emotionMaxRows = 50;
+          state.emotionBehaviorFilter.emotionShowPanel = false;
+          renderEmotion();
+        });
+      }
+
+      if (toggleAbcFilterBtn) {
+        toggleAbcFilterBtn.addEventListener("click", () => {
+          state.emotionBehaviorFilter.abcShowPanel = !shouldShowAbcFilterPanel;
+          renderEmotion();
+        });
+      }
+      const abcKeywordFilter = host.querySelector("#abcKeywordFilter");
+      if (abcKeywordFilter) {
+        const applyAbcKeyword = () => {
+          state.emotionBehaviorFilter.abcKeyword = abcKeywordFilter.value.trim();
+          renderEmotion();
+        };
+        abcKeywordFilter.addEventListener("change", applyAbcKeyword);
+        abcKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          applyAbcKeyword();
+        });
+      }
+      const abcMaxRowsSelect = host.querySelector("#abcMaxRows");
+      if (abcMaxRowsSelect) {
+        abcMaxRowsSelect.addEventListener("change", () => {
+          const nextMaxRows = Number(abcMaxRowsSelect.value);
+          state.emotionBehaviorFilter.abcMaxRows = [20, 50, 100, 200].includes(nextMaxRows) ? nextMaxRows : 60;
+          renderEmotion();
+        });
+      }
+      const abcDateFromInput = host.querySelector("#abcDateFrom");
+      if (abcDateFromInput) {
+        abcDateFromInput.addEventListener("change", () => {
+          state.emotionBehaviorFilter.abcDateFrom = abcDateFromInput.value;
+          renderEmotion();
+        });
+      }
+      const abcDateToInput = host.querySelector("#abcDateTo");
+      if (abcDateToInput) {
+        abcDateToInput.addEventListener("change", () => {
+          state.emotionBehaviorFilter.abcDateTo = abcDateToInput.value;
+          renderEmotion();
+        });
+      }
+      const abcDateTodayBtn = host.querySelector("#abcDateTodayBtn");
+      if (abcDateTodayBtn) {
+        abcDateTodayBtn.addEventListener("click", () => {
+          const range = getDateRangePreset("today");
+          state.emotionBehaviorFilter.abcDateFrom = range.from;
+          state.emotionBehaviorFilter.abcDateTo = range.to;
+          renderEmotion();
+        });
+      }
+      const abcDateWeekBtn = host.querySelector("#abcDateWeekBtn");
+      if (abcDateWeekBtn) {
+        abcDateWeekBtn.addEventListener("click", () => {
+          const range = getDateRangePreset("week");
+          state.emotionBehaviorFilter.abcDateFrom = range.from;
+          state.emotionBehaviorFilter.abcDateTo = range.to;
+          renderEmotion();
+        });
+      }
+      const abcDateMonthBtn = host.querySelector("#abcDateMonthBtn");
+      if (abcDateMonthBtn) {
+        abcDateMonthBtn.addEventListener("click", () => {
+          const range = getDateRangePreset("month");
+          state.emotionBehaviorFilter.abcDateFrom = range.from;
+          state.emotionBehaviorFilter.abcDateTo = range.to;
+          renderEmotion();
+        });
+      }
+      const abcFilterResetBtn = host.querySelector("#abcFilterResetBtn");
+      if (abcFilterResetBtn) {
+        abcFilterResetBtn.addEventListener("click", () => {
+          state.emotionBehaviorFilter.abcKeyword = "";
+          state.emotionBehaviorFilter.abcDateFrom = "";
+          state.emotionBehaviorFilter.abcDateTo = "";
+          state.emotionBehaviorFilter.abcMaxRows = 60;
+          state.emotionBehaviorFilter.abcShowPanel = false;
+          renderEmotion();
+        });
+      }
 
       emotionTable.addEventListener("click", e => {
         const btn = e.target.closest("button");
@@ -6016,6 +6636,46 @@
 
     function renderSettings() {
       const host = document.getElementById("view-settings");
+      const taskFilter = {
+        keyword: "",
+        category: "全部類別",
+        maxRows: 20,
+        showFilterPanel: false,
+        mode: "all",
+        ...(state.taskListFilter || {})
+      };
+      if (taskFilter.category !== "全部類別" && !state.tasks.some(t => t.category === taskFilter.category)) {
+        taskFilter.category = "全部類別";
+      }
+      state.taskListFilter = taskFilter;
+      const taskFilterThreshold = 100;
+      const taskKeyword = String(taskFilter.keyword || "").trim().toLowerCase();
+      const taskMaxRows = [20, 50, 100, 200].includes(Number(taskFilter.maxRows)) ? Number(taskFilter.maxRows) : 20;
+      const taskCategories = Array.from(new Set(state.tasks.map(t => String(t.category || "").trim()).filter(Boolean)));
+      const taskUsageMap = {};
+      state.records.forEach(r => {
+        const taskName = String(r.taskName || "").trim();
+        if (!taskName) return;
+        taskUsageMap[taskName] = (taskUsageMap[taskName] || 0) + 1;
+      });
+      let filteredTasks = state.tasks.filter(t => {
+        const categoryOk = taskFilter.category === "全部類別" || t.category === taskFilter.category;
+        if (!categoryOk) return false;
+        if (!taskKeyword) return true;
+        const bag = `${t.category || ""} ${t.name || ""} ${t.defaultToken || ""}`.toLowerCase();
+        return bag.includes(taskKeyword);
+      });
+      if (taskFilter.mode === "highFrequency") {
+        filteredTasks = filteredTasks
+          .filter(t => (taskUsageMap[t.name] || 0) > 0)
+          .sort((a, b) => (taskUsageMap[b.name] || 0) - (taskUsageMap[a.name] || 0));
+      }
+      const visibleTaskCount = Math.min(filteredTasks.length, taskMaxRows);
+      const hasActiveTaskFilter = !!taskKeyword || taskFilter.category !== "全部類別" || taskMaxRows !== 20 || taskFilter.mode !== "all";
+      const shouldShowTaskFilterPanel = state.tasks.length > taskFilterThreshold
+        || hasActiveTaskFilter
+        || !!taskFilter.showFilterPanel;
+
       host.innerHTML = `
         <div class="grid-2">
           <div class="card">
@@ -6061,6 +6721,22 @@
                 <button class="btn danger" type="button" id="taskDeleteBtn">刪除</button>
               </div>
             </form>
+            <div class="actions" style="margin-bottom:8px; justify-content:space-between; align-items:center;">
+              <p class="mini" style="margin:0;">共 ${state.tasks.length} 筆，符合篩選 ${filteredTasks.length} 筆，目前顯示 ${visibleTaskCount} 筆。</p>
+              <button class="btn" type="button" id="toggleTaskFilterBtn">${shouldShowTaskFilterPanel ? "收合篩選" : "展開篩選"}</button>
+            </div>
+            <div id="taskFilterPanel" style="display:${shouldShowTaskFilterPanel ? "block" : "none"};">
+              <div class="grid-4" style="margin-bottom:8px;">
+                <div class="field"><label>關鍵字</label><input id="taskKeywordFilter" value="${taskFilter.keyword || ""}" placeholder="類別/名稱/代幣" /></div>
+                <div class="field"><label>類別</label><select id="taskCategoryFilter"><option ${taskFilter.category === "全部類別" ? "selected" : ""}>全部類別</option>${taskCategories.map(c => `<option ${taskFilter.category === c ? "selected" : ""}>${c}</option>`).join("")}</select></div>
+                <div class="field"><label>顯示筆數</label><select id="taskMaxRows"><option value="20" ${taskMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${taskMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${taskMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${taskMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
+              </div>
+              <div class="actions" style="margin-bottom:8px;">
+                <button class="btn ${taskFilter.mode === "all" && taskFilter.category === "全部類別" && !taskKeyword ? "primary" : ""}" type="button" id="taskQuickAllBtn">全部</button>
+                <button class="btn ${taskFilter.mode === "highFrequency" ? "primary" : ""}" type="button" id="taskQuickHighFreqBtn">高頻工作</button>
+                <button class="btn ${taskFilter.category === "生活自理" ? "primary" : ""}" type="button" id="taskQuickLifeBtn">生活自理</button>
+              </div>
+            </div>
             <div class="actions" style="margin-bottom:8px;">
               <button class="btn" type="button" id="taskSelectAllBtn">全選</button>
               <button class="btn danger" type="button" id="taskBulkDeleteBtn">刪除勾選</button>
@@ -6323,7 +6999,41 @@
       }
 
       const taskTable = host.querySelector("#taskTable");
-      taskTable.innerHTML = state.tasks.map(t => `
+      const taskFilter = {
+        keyword: "",
+        category: "全部類別",
+        maxRows: 20,
+        showFilterPanel: false,
+        mode: "all",
+        ...(state.taskListFilter || {})
+      };
+      if (taskFilter.category !== "全部類別" && !state.tasks.some(t => t.category === taskFilter.category)) {
+        taskFilter.category = "全部類別";
+      }
+      state.taskListFilter = taskFilter;
+      const taskKeyword = String(taskFilter.keyword || "").trim().toLowerCase();
+      const taskMaxRows = [20, 50, 100, 200].includes(Number(taskFilter.maxRows)) ? Number(taskFilter.maxRows) : 20;
+      const taskUsageMap = {};
+      state.records.forEach(r => {
+        const taskName = String(r.taskName || "").trim();
+        if (!taskName) return;
+        taskUsageMap[taskName] = (taskUsageMap[taskName] || 0) + 1;
+      });
+      let filteredTasks = state.tasks.filter(t => {
+        const categoryOk = taskFilter.category === "全部類別" || t.category === taskFilter.category;
+        if (!categoryOk) return false;
+        if (!taskKeyword) return true;
+        const bag = `${t.category || ""} ${t.name || ""} ${t.defaultToken || ""}`.toLowerCase();
+        return bag.includes(taskKeyword);
+      });
+      if (taskFilter.mode === "highFrequency") {
+        filteredTasks = filteredTasks
+          .filter(t => (taskUsageMap[t.name] || 0) > 0)
+          .sort((a, b) => (taskUsageMap[b.name] || 0) - (taskUsageMap[a.name] || 0));
+      }
+      const visibleTasks = filteredTasks.slice(0, taskMaxRows);
+
+      taskTable.innerHTML = visibleTasks.map(t => `
         <tr>
           <td><input type="checkbox" data-task-select="${t.id}" aria-label="勾選工作項目 ${t.name}"></td>
           <td>${t.category}</td><td>${t.name}</td><td>${t.defaultToken}</td>
@@ -6334,6 +7044,72 @@
       const taskSelectAll = host.querySelector("#taskSelectAll");
       const taskSelectAllBtn = host.querySelector("#taskSelectAllBtn");
       const taskBulkDeleteBtn = host.querySelector("#taskBulkDeleteBtn");
+      const toggleTaskFilterBtn = host.querySelector("#toggleTaskFilterBtn");
+      const taskKeywordFilter = host.querySelector("#taskKeywordFilter");
+      const taskCategoryFilter = host.querySelector("#taskCategoryFilter");
+      const taskMaxRowsSelect = host.querySelector("#taskMaxRows");
+      const taskQuickAllBtn = host.querySelector("#taskQuickAllBtn");
+      const taskQuickHighFreqBtn = host.querySelector("#taskQuickHighFreqBtn");
+      const taskQuickLifeBtn = host.querySelector("#taskQuickLifeBtn");
+
+      if (toggleTaskFilterBtn) {
+        const taskFilterThreshold = 100;
+        const hasActiveTaskFilter = !!taskKeyword || taskFilter.category !== "全部類別" || taskMaxRows !== 20;
+        const shouldShowTaskFilterPanel = state.tasks.length > taskFilterThreshold
+          || hasActiveTaskFilter
+          || !!taskFilter.showFilterPanel;
+        toggleTaskFilterBtn.addEventListener("click", () => {
+          state.taskListFilter.showFilterPanel = !shouldShowTaskFilterPanel;
+          renderSettings();
+        });
+      }
+      if (taskKeywordFilter) {
+        const applyTaskKeyword = () => {
+          state.taskListFilter.keyword = taskKeywordFilter.value.trim();
+          renderSettings();
+        };
+        taskKeywordFilter.addEventListener("change", applyTaskKeyword);
+        taskKeywordFilter.addEventListener("keydown", e => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          applyTaskKeyword();
+        });
+      }
+      if (taskCategoryFilter) {
+        taskCategoryFilter.addEventListener("change", () => {
+          state.taskListFilter.category = taskCategoryFilter.value;
+          renderSettings();
+        });
+      }
+      if (taskMaxRowsSelect) {
+        taskMaxRowsSelect.addEventListener("change", () => {
+          const nextMaxRows = Number(taskMaxRowsSelect.value);
+          state.taskListFilter.maxRows = [20, 50, 100, 200].includes(nextMaxRows) ? nextMaxRows : 20;
+          renderSettings();
+        });
+      }
+      if (taskQuickAllBtn) {
+        taskQuickAllBtn.addEventListener("click", () => {
+          state.taskListFilter.keyword = "";
+          state.taskListFilter.category = "全部類別";
+          state.taskListFilter.maxRows = 20;
+          state.taskListFilter.mode = "all";
+          renderSettings();
+        });
+      }
+      if (taskQuickHighFreqBtn) {
+        taskQuickHighFreqBtn.addEventListener("click", () => {
+          state.taskListFilter.mode = state.taskListFilter.mode === "highFrequency" ? "all" : "highFrequency";
+          renderSettings();
+        });
+      }
+      if (taskQuickLifeBtn) {
+        taskQuickLifeBtn.addEventListener("click", () => {
+          state.taskListFilter.category = "生活自理";
+          state.taskListFilter.mode = "all";
+          renderSettings();
+        });
+      }
 
       function getSelectedTaskIds() {
         return Array.from(taskTable.querySelectorAll("[data-task-select]:checked")).map(cb => cb.dataset.taskSelect);

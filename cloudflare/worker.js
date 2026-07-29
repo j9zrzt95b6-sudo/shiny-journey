@@ -37,8 +37,9 @@ function normalizeParsedPayload(raw) {
 }
 
 async function loadStoredValue(env, kvKey, syncKey) {
-  if (env.SMART_CARE_D1) {
-    const row = await env.SMART_CARE_D1.prepare(
+  const d1 = env.DB || env.SMART_CARE_D1;
+  if (d1) {
+    const row = await d1.prepare(
       "SELECT payload, updated_at FROM sync_state WHERE sync_key = ?"
     ).bind(syncKey).first();
     const value = normalizeParsedPayload(row && row.payload);
@@ -53,7 +54,7 @@ async function loadStoredValue(env, kvKey, syncKey) {
   }
 
   if (!env.SMART_CARE_STATE) {
-    throw new Error("No storage configured. Bind SMART_CARE_D1 or SMART_CARE_STATE.");
+    throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
   }
 
   const raw = await env.SMART_CARE_STATE.get(kvKey);
@@ -61,8 +62,9 @@ async function loadStoredValue(env, kvKey, syncKey) {
 }
 
 async function storeValue(env, kvKey, syncKey, payload, updatedAt) {
-  if (env.SMART_CARE_D1) {
-    await env.SMART_CARE_D1.prepare(
+  const d1 = env.DB || env.SMART_CARE_D1;
+  if (d1) {
+    await d1.prepare(
       `INSERT INTO sync_state (sync_key, payload, updated_at)
        VALUES (?, ?, ?)
        ON CONFLICT(sync_key) DO UPDATE SET
@@ -73,7 +75,7 @@ async function storeValue(env, kvKey, syncKey, payload, updatedAt) {
   }
 
   if (!env.SMART_CARE_STATE) {
-    throw new Error("No storage configured. Bind SMART_CARE_D1 or SMART_CARE_STATE.");
+    throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
   }
 
   await env.SMART_CARE_STATE.put(kvKey, JSON.stringify(payload));
@@ -81,15 +83,16 @@ async function storeValue(env, kvKey, syncKey, payload, updatedAt) {
 }
 
 async function deleteValue(env, kvKey, syncKey) {
-  if (env.SMART_CARE_D1) {
-    await env.SMART_CARE_D1.prepare(
+  const d1 = env.DB || env.SMART_CARE_D1;
+  if (d1) {
+    await d1.prepare(
       "DELETE FROM sync_state WHERE sync_key = ?"
     ).bind(syncKey).run();
     return "d1";
   }
 
   if (!env.SMART_CARE_STATE) {
-    throw new Error("No storage configured. Bind SMART_CARE_D1 or SMART_CARE_STATE.");
+    throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
   }
 
   await env.SMART_CARE_STATE.delete(kvKey);
