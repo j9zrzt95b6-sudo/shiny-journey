@@ -1125,21 +1125,19 @@
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
       if (!(remoteUpdatedAt > localUpdatedAt)) return false;
 
-      // Do not overwrite local pending edits before they are pushed to cloud.
-      if (localDirtyAt > localUpdatedAt) return false;
-
       const beforeData = buildDataSnapshot(state);
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
-        state[key] = value;
+        const localValue = Array.isArray(state[key]) ? state[key] : [];
+        state[key] = mergeArraysForCloud(localValue, value);
       });
       state._meta = {
         ...(state._meta || {}),
-        ...remotePayload._meta,
-        lastSyncedAt: remoteUpdatedAt,
-        updatedAt: remoteUpdatedAt,
-        localDirtyAt: 0
+        ...(remotePayload._meta || {}),
+        lastSyncedAt: Math.max(remoteUpdatedAt, localUpdatedAt),
+        updatedAt: Math.max(remoteUpdatedAt, localUpdatedAt),
+        localDirtyAt: localDirtyAt > remoteUpdatedAt ? localDirtyAt : 0
       };
       const afterData = buildDataSnapshot(state);
       return beforeData !== afterData;
