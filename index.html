@@ -890,6 +890,7 @@
     }
 
     function resolveCloudSyncBaseUrl() {
+      const onGithubHost = (/\.github\.(io|dev)$/).test(location.hostname);
       const url = new URL(location.href);
       const fromUrl = sanitizeCloudSyncBaseUrl(url.searchParams.get(CLOUD_SYNC_BASE_URL_PARAM));
       if (fromUrl) {
@@ -897,7 +898,15 @@
         return fromUrl;
       }
       const fromStorage = sanitizeCloudSyncBaseUrl(localStorage.getItem(CLOUD_SYNC_BASE_URL_STORAGE));
-      if (fromStorage && !ALTERNATE_CLOUD_SYNC_BASE_URLS.includes(fromStorage)) return fromStorage;
+      if (fromStorage) {
+        if (onGithubHost) {
+          if (fromStorage.startsWith("/")) return DEFAULT_CLOUD_SYNC_BASE_URL;
+          if (!/^https:\/\/smart-care-sync(-api)?\.j9zrzt95b6\.workers\.dev(\/.*)?$/.test(fromStorage)) {
+            return DEFAULT_CLOUD_SYNC_BASE_URL;
+          }
+        }
+        if (!ALTERNATE_CLOUD_SYNC_BASE_URLS.includes(fromStorage)) return fromStorage;
+      }
       return DEFAULT_CLOUD_SYNC_BASE_URL;
     }
 
