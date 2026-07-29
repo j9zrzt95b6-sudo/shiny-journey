@@ -1525,6 +1525,8 @@
 
     async function init() {
       try {
+        // Hide content until first full render to prevent flash
+        document.body.style.visibility = "hidden";
         ensureRuntimeFallbacks();
         renderSyncKeyBadge();
         updateCloudSyncBadge();
@@ -1540,6 +1542,12 @@
           } else {
             ensureDemoRecords();
           }
+        } else if (isCloudSyncConfigured()) {
+          // Has local state; quietly pull cloud to merge before first render
+          const remoteValue = await fetchCloudStateSnapshot();
+          if (remoteValue && typeof remoteValue === "object") {
+            applyCloudPayload(remoteValue);
+          }
         }
         if (!state.logs) state.logs = [];
         wireStorageSync();
@@ -1549,9 +1557,11 @@
         fillFilters();
         renderAll();
         updateCloudSyncBadge();
+        document.body.style.visibility = "";
         startCloudSync();
         log("系統啟動", "Smart Care 管理平台已載入");
       } catch (err) {
+        document.body.style.visibility = "";
         document.body.innerHTML = `<div style="padding:24px;font-family:sans-serif;"><h2>Smart Care 載入失敗</h2><p>${String(err && err.message ? err.message : err)}</p><p>請重新整理，或開啟 TUNNEL_FIX.md 依指引排除。</p></div>`;
         console.error(err);
       }
