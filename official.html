@@ -1129,8 +1129,7 @@
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
-        const localValue = Array.isArray(state[key]) ? state[key] : [];
-        state[key] = mergeArraysForCloud(localValue, value);
+        state[key] = value;
       });
       state._meta = {
         ...(state._meta || {}),
@@ -1141,6 +1140,19 @@
       };
       const afterData = buildDataSnapshot(state);
       return beforeData !== afterData;
+    }
+
+    async function fetchCloudStateSnapshot() {
+      try {
+        const resp = await fetch(getCloudSyncUrl());
+        if (!resp.ok) return null;
+        const data = await resp.json();
+        if (!data || !data.ok || !data.value) return null;
+        return data.value;
+      } catch (err) {
+        console.warn("雲端狀態讀取失敗", err);
+        return null;
+      }
     }
 
     async function pullCloudState(options = {}) {
@@ -1511,14 +1523,25 @@
       return map[role].includes(permission);
     }
 
-    function init() {
+    async function init() {
       try {
         ensureRuntimeFallbacks();
         renderSyncKeyBadge();
         updateCloudSyncBadge();
         const hasSavedState = loadState();
-        if (!hasSavedState) ensureDemoRecords();
-        else if (!state.logs) state.logs = [];
+        if (!hasSavedState) {
+          if (isCloudSyncConfigured()) {
+            const remoteValue = await fetchCloudStateSnapshot();
+            if (remoteValue && typeof remoteValue === "object") {
+              applyCloudPayload(remoteValue);
+            } else {
+              ensureDemoRecords();
+            }
+          } else {
+            ensureDemoRecords();
+          }
+        }
+        if (!state.logs) state.logs = [];
         wireStorageSync();
         wirePresenceSync();
         renderNav();
