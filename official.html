@@ -2520,6 +2520,7 @@
           <form id="exchangeForm" class="grid-4">
             <div class="field"><label>個案</label><select name="clientName">${clientOptions}</select></div>
             <div class="field"><label>兌換項目</label><select name="rewardId">${rewardOptions}</select></div>
+            <div class="field"><label>兌換日期</label><input name="exchangeDate" type="date" value="${today()}" required /></div>
             <div class="field"><label>本次扣點（可覆寫預設）</label><input name="customCost" type="number" min="0" placeholder="留空用預設" /></div>
             <div class="field"><label>兌換內容（可覆寫）</label><input name="customContent" placeholder="留空用預設內容" /></div>
             <div class="actions" style="grid-column: 1 / -1;">
@@ -2535,8 +2536,8 @@
           <div class="grid-4" style="margin-top:10px;">
             <div class="field"><label>紀錄篩選</label><select id="exchangePeriodFilter"><option ${f.period === "本月" ? "selected" : ""}>本月</option><option ${f.period === "本季" ? "selected" : ""}>本季</option><option ${f.period === "全部" ? "selected" : ""}>全部</option><option ${f.period === "自訂" ? "selected" : ""}>自訂</option></select></div>
             <div class="field"><label>個案</label><select id="exchangeClientFilter">${filterClientOptions}</select></div>
-            <div class="field"><label>起始日</label><input id="exchangeStartDate" type="date" value="${f.startDate || ""}" ${f.period === "自訂" ? "" : "disabled"}></div>
-            <div class="field"><label>結束日</label><input id="exchangeEndDate" type="date" value="${f.endDate || ""}" ${f.period === "自訂" ? "" : "disabled"}></div>
+            <div class="field"><label>起始日</label><input id="exchangeStartDate" type="date" value="${f.startDate || ""}"></div>
+            <div class="field"><label>結束日</label><input id="exchangeEndDate" type="date" value="${f.endDate || ""}"></div>
           </div>
           <p class="mini">撤銷限制：僅限最近 ${state.undoWindowMinutes} 分鐘內，且需填寫撤銷原因。</p>
         </div>
@@ -2724,10 +2725,12 @@
         renderTokens();
       });
       exchangeStartDate.addEventListener("change", () => {
+        state.tokenExchangeFilter.period = "自訂";
         state.tokenExchangeFilter.startDate = exchangeStartDate.value;
         renderTokens();
       });
       exchangeEndDate.addEventListener("change", () => {
+        state.tokenExchangeFilter.period = "自訂";
         state.tokenExchangeFilter.endDate = exchangeEndDate.value;
         renderTokens();
       });
@@ -2824,6 +2827,7 @@
         const reward = state.tokenShops.find(r => r.id === fd.get("rewardId"));
         if (!reward) return;
         const clientName = String(fd.get("clientName"));
+        const exchangeDate = String(fd.get("exchangeDate") || "").trim() || today();
         const defaultCost = Number(reward.cost || 0);
         const rawCustomCost = String(fd.get("customCost") || "").trim();
         const cost = rawCustomCost === "" ? defaultCost : Number(rawCustomCost);
@@ -2837,10 +2841,22 @@
           if (!yes) return;
         }
 
+        const now = new Date();
+        const [yy, mm, dd] = exchangeDate.split("-").map(Number);
+        const redeemAt = new Date(now);
+        if (Number.isFinite(yy) && Number.isFinite(mm) && Number.isFinite(dd)) {
+          redeemAt.setFullYear(yy, mm - 1, dd);
+        }
+        const hh = String(now.getHours()).padStart(2, "0");
+        const mi = String(now.getMinutes()).padStart(2, "0");
+        const ss = String(now.getSeconds()).padStart(2, "0");
+
         const exchange = {
           id: id(),
-          dateTime: new Date().toLocaleString("zh-TW"),
-          createdAtIso: new Date().toISOString(),
+          dateTime: `${exchangeDate} ${hh}:${mi}:${ss}`,
+          createdAtIso: now.toISOString(),
+          redeemedAtIso: redeemAt.toISOString(),
+          redeemDate: exchangeDate,
           clientName,
           rewardItem: reward.item,
           cost,
@@ -3101,7 +3117,7 @@
       return state.tokenExchanges.filter(x => {
         const clientOk = f.clientName === "全部個案" || x.clientName === f.clientName;
         if (!clientOk) return false;
-        const iso = String(x.createdAtIso || "");
+        const iso = String(x.redeemedAtIso || x.createdAtIso || "");
         if (!iso) return true;
         const d = new Date(iso);
         if (f.period === "全部") return true;
@@ -3114,7 +3130,7 @@
         }
         if (f.period === "自訂") {
           if (!f.startDate || !f.endDate) return true;
-          const day = iso.slice(0, 10);
+          const day = String(x.redeemDate || "") || iso.slice(0, 10);
           return day >= f.startDate && day <= f.endDate;
         }
         return true;
