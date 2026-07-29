@@ -745,7 +745,7 @@
       "https://smart-care-sync.j9zrzt95b6.workers.dev/state",
       "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state"
     ];
-    const DEFAULT_CLOUD_SYNC_BASE_URL = location.hostname.endsWith(".github.io")
+    const DEFAULT_CLOUD_SYNC_BASE_URL = (/\.github\.(io|dev)$/).test(location.hostname)
       ? "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state"
       : "/.netlify/functions/state";
     const CLOUD_SYNC_ENABLED = location.protocol === "http:" || location.protocol === "https:";
