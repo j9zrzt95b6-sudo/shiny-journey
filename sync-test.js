@@ -232,7 +232,7 @@ async function testSyncEndpoint(apiUrl, syncKey) {
 
 // 解析命令列參數
 const args = process.argv.slice(2);
-let apiUrl = 'https://smart-care-sync.j9zrzt95b6.workers.dev/state';
+let apiUrl = 'https://smart-care-sync-api.j9zrzt95b6.workers.dev/state';
 let syncKey = 'test-sync-2026';
 
 for (let i = 0; i < args.length; i++) {
