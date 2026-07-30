@@ -27,7 +27,7 @@ cp .env.cloudflare.example .env.cloudflare
 ### 步驟 1：電腦端打開應用
 ```
 複製貼上這個地址到電腦瀏覽器：
-https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
 ✅ 頁面應加載完成
 ✅ 工具列應顯示同步碼 center-a
@@ -46,7 +46,7 @@ https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
 ### 步驟 3：手機端打開應用
 ```
 複製貼上到手機瀏覽器：
-https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
 ✅ 應自動使用相同同步碼
 ```
@@ -227,7 +227,7 @@ Cmd+Option+I（Mac）
 
 **生產環境無法打開**
 ```
-URL：https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+URL：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
 檢查：
   1. 網路連接是否正常
@@ -398,7 +398,7 @@ _______________________________
 
 ### 最快方案（1 分鐘準備）
 ```
-1. 複製：https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+1. 複製：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 2. 電腦瀏覽器打開
 3. 手機瀏覽器打開
 4. 開始操作

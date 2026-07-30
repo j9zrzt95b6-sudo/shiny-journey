@@ -106,6 +106,11 @@
       justify-content: center;
     }
 
+    .nav-badge.danger {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+
     .nav button:hover,
     .nav button.active {
       background: rgba(255, 255, 255, 0.15);
@@ -134,6 +139,17 @@
       gap: 4px;
     }
 
+    .lock-notice {
+      margin: -6px 0 12px 0;
+      padding: 9px 12px;
+      border: 1px solid #fed7aa;
+      background: #fff7ed;
+      color: #9a3412;
+      border-radius: 10px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
     .toolbar label,
     .field label {
       font-size: 12px;
@@ -155,6 +171,34 @@
       padding: 8px 10px;
       background: #fff;
       width: 100%;
+    }
+
+    select:disabled,
+    input:disabled,
+    textarea:disabled {
+      background: #f3f4f6;
+      border-color: #d1d5db;
+      color: #6b7280;
+      cursor: not-allowed;
+    }
+
+    .analysis-class-select:disabled {
+      background: #fff7ed;
+      border-color: #fdba74;
+      color: #9a3412;
+      font-weight: 700;
+    }
+
+    .field-hint {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.35;
+    }
+
+    .field-hint.locked {
+      color: #b45309;
+      font-weight: 700;
     }
 
     textarea {
@@ -533,6 +577,10 @@
           <label>操作紀錄</label>
           <button class="btn" id="openLogBtn">查看全部紀錄</button>
         </div>
+        <div class="field" id="classScopeUnlockField" style="display:none;">
+          <label>班級鎖定</label>
+          <button class="btn warn" id="unlockClassScopeBtn">解除鎖定</button>
+        </div>
         <div class="field">
           <label>雲端同步</label>
           <button class="btn" id="syncNowBtn">立即同步</button>
@@ -540,6 +588,7 @@
           <div class="sync-key-badge" id="syncKeyBadge">同步碼：讀取中...</div>
         </div>
       </section>
+      <div id="classScopeLockNotice" class="lock-notice" style="display:none;"></div>
 
       <section class="view active" id="view-dashboard"></section>
       <section class="view" id="view-cases"></section>
@@ -701,6 +750,10 @@
       },
       reportItems: [],
       currentOperator: "管理員",
+      classScopeLock: {
+        enabled: false,
+        className: ""
+      },
       selectedClass: "全部班級",
       selectedClient: "全部個案",
       selectedPeriod: "本週",
@@ -826,9 +879,7 @@
       "https://smart-care-sync.j9zrzt95b6.workers.dev/state",
       "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state"
     ];
-    const DEFAULT_CLOUD_SYNC_BASE_URL = (/\.github\.(io|dev)$/).test(location.hostname)
-      ? "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state"
-      : "/.netlify/functions/state";
+    const DEFAULT_CLOUD_SYNC_BASE_URL = "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state";
     const CLOUD_SYNC_ENABLED = location.protocol === "http:" || location.protocol === "https:";
     let cloudSyncKey = resolveCloudSyncKey();
     let cloudSyncBaseUrl = resolveCloudSyncBaseUrl();
@@ -950,7 +1001,6 @@
     function sanitizeCloudSyncBaseUrl(raw) {
       const value = String(raw || "").trim();
       if (!value) return "";
-      if (value.startsWith("/")) return value.replace(/\/+$/, "");
       try {
         const parsed = new URL(value);
         if (parsed.protocol !== "https:") return "";
@@ -980,11 +1030,8 @@
       }
       const fromStorage = sanitizeCloudSyncBaseUrl(localStorage.getItem(CLOUD_SYNC_BASE_URL_STORAGE));
       if (fromStorage) {
-        if (onGithubHost) {
-          if (fromStorage.startsWith("/")) return DEFAULT_CLOUD_SYNC_BASE_URL;
-          if (!/^https:\/\/smart-care-sync(-api)?\.j9zrzt95b6\.workers\.dev(\/.*)?$/.test(fromStorage)) {
-            return DEFAULT_CLOUD_SYNC_BASE_URL;
-          }
+        if (onGithubHost && !/^https:\/\/smart-care-sync(-api)?\.j9zrzt95b6\.workers\.dev(\/.*)?$/.test(fromStorage)) {
+          return DEFAULT_CLOUD_SYNC_BASE_URL;
         }
         if (!ALTERNATE_CLOUD_SYNC_BASE_URLS.includes(fromStorage)) return fromStorage;
       }
@@ -1486,6 +1533,7 @@
           const className = String(t.className || t.teacherClass || "").trim();
           return { ...t, id: t.id || id(), name, className };
         }).filter(Boolean);
+        ensureClassScopeLockState();
         return true;
       } catch (err) {
         console.warn("無法載入本機資料", err);
@@ -1586,6 +1634,72 @@
       }
     }
 
+    function ensureClassScopeLockState() {
+      if (!state.classScopeLock || typeof state.classScopeLock !== "object") {
+        state.classScopeLock = { enabled: false, className: "" };
+      }
+      state.classScopeLock.enabled = !!state.classScopeLock.enabled;
+      const lockClassName = String(state.classScopeLock.className || "").trim();
+      if (lockClassName && state.classes.includes(lockClassName)) {
+        state.classScopeLock.className = lockClassName;
+        return;
+      }
+      state.classScopeLock.className = state.classes[0] || "";
+    }
+
+    function getLockedClassName() {
+      ensureClassScopeLockState();
+      const className = String(state.classScopeLock.className || "").trim();
+      if (!className || !state.classes.includes(className)) return "";
+      return className;
+    }
+
+    function isClassScopeLockActive() {
+      const role = normalizeRole(state.role);
+      if (role === "teacher") return false;
+      ensureClassScopeLockState();
+      return !!state.classScopeLock.enabled && !!getLockedClassName();
+    }
+
+    function applyClassScopeLock() {
+      if (!isClassScopeLockActive()) return false;
+      const lockedClass = getLockedClassName();
+      if (!lockedClass) return false;
+      let changed = false;
+      if (state.selectedClass !== lockedClass) {
+        state.selectedClass = lockedClass;
+        changed = true;
+      }
+      if (state.selectedClient !== "全部個案") {
+        const selected = state.clients.find(c => c.name === state.selectedClient);
+        if (!selected || selected.className !== lockedClass) {
+          state.selectedClient = "全部個案";
+          changed = true;
+        }
+      }
+      return changed;
+    }
+
+    function updateClassScopeLockUI() {
+      const notice = document.getElementById("classScopeLockNotice");
+      const unlockField = document.getElementById("classScopeUnlockField");
+      const unlockBtn = document.getElementById("unlockClassScopeBtn");
+      const active = isClassScopeLockActive();
+      const lockedClass = getLockedClassName();
+      if (notice) {
+        notice.style.display = active ? "block" : "none";
+        notice.textContent = active
+          ? `目前為班級鎖定模式：${lockedClass}（管理員/督導僅能操作此班級）`
+          : "";
+      }
+      if (unlockField) {
+        unlockField.style.display = active ? "flex" : "none";
+      }
+      if (unlockBtn) {
+        unlockBtn.disabled = !active;
+      }
+    }
+
     function getRoleOperators(role) {
       const normalizedRole = normalizeRole(role);
       if (normalizedRole === "teacher") {
@@ -1631,6 +1745,7 @@
         roleSelect.value = state.role;
       }
       syncOperatorByRole();
+      applyClassScopeLock();
     }
 
     function canManageOwner(ownerName) {
@@ -1827,10 +1942,12 @@
     function renderNav() {
       const nav = document.getElementById("nav");
       const pendingTokenUndoCount = (state.tokenUndoRequests || []).filter(r => r.status === "pending").length;
+      const lockActive = isClassScopeLockActive();
       nav.innerHTML = viewMap.map(v => (
         `<button data-view="${v.key}" class="${state.activeView === v.key ? "active" : ""}">
           <span class="nav-label">${v.label}</span>
           ${v.key === "tokens" && pendingTokenUndoCount > 0 ? `<span class="nav-badge" title="待審撤銷申請">${pendingTokenUndoCount}</span>` : ""}
+          ${v.key === "dashboard" && lockActive ? `<span class="nav-badge danger" title="班級鎖定中">鎖</span>` : ""}
         </button>`
       )).join("");
       nav.querySelectorAll("button").forEach(btn => {
@@ -1882,6 +1999,16 @@
       document.getElementById("syncNowBtn").addEventListener("click", e => {
         manualCloudSync(e.currentTarget);
       });
+      const unlockBtn = document.getElementById("unlockClassScopeBtn");
+      if (unlockBtn) {
+        unlockBtn.addEventListener("click", () => {
+          if (!isClassScopeLockActive()) return;
+          state.classScopeLock.enabled = false;
+          fillFilters();
+          log("班級鎖定設定", "停用 / 工具列快速解除");
+          renderAll();
+        });
+      }
       if (!isCloudSyncConfigured()) {
         const syncBtn = document.getElementById("syncNowBtn");
         if (syncBtn) {
@@ -1892,6 +2019,7 @@
     }
 
     function fillFilters() {
+      ensureClassScopeLockState();
       const classFilter = document.getElementById("classFilter");
       const role = normalizeRole(state.role);
       if (role === "teacher") {
@@ -1906,19 +2034,38 @@
           classFilter.value = state.selectedClass;
         }
       } else {
-        classFilter.innerHTML = ["全部班級", ...state.classes].map(c => `<option>${c}</option>`).join("");
-        if (!["全部班級", ...state.classes].includes(state.selectedClass)) {
-          state.selectedClass = "全部班級";
+        const lockedClass = getLockedClassName();
+        if (isClassScopeLockActive() && lockedClass) {
+          state.selectedClass = lockedClass;
+          classFilter.innerHTML = [`<option>${lockedClass}</option>`].join("");
+          classFilter.value = lockedClass;
+        } else {
+          classFilter.innerHTML = ["全部班級", ...state.classes].map(c => `<option>${c}</option>`).join("");
+          if (!["全部班級", ...state.classes].includes(state.selectedClass)) {
+            state.selectedClass = "全部班級";
+          }
+          classFilter.value = state.selectedClass;
         }
-        classFilter.value = state.selectedClass;
       }
       refillClientFilter();
     }
 
+    function getClientsByClassScope(className = state.selectedClass) {
+      return state.clients.filter(c => {
+        const classOk = className === "全部班級" || c.className === className;
+        if (!classOk) return false;
+        return canAccessClientByRole(c.name);
+      });
+    }
+
+    function getToolbarScopedClients({ respectSelectedClient = true } = {}) {
+      const classScoped = getClientsByClassScope(state.selectedClass);
+      if (!respectSelectedClient || state.selectedClient === "全部個案") return classScoped;
+      return classScoped.filter(c => c.name === state.selectedClient);
+    }
+
     function refillClientFilter() {
-      const options = state.clients
-        .filter(c => state.selectedClass === "全部班級" || c.className === state.selectedClass)
-        .map(c => c.name);
+      const options = getClientsByClassScope(state.selectedClass).map(c => c.name);
       const clientFilter = document.getElementById("clientFilter");
       clientFilter.innerHTML = ["全部個案", ...options].map(c => `<option>${c}</option>`).join("");
       if (!options.includes(state.selectedClient)) state.selectedClient = "全部個案";
@@ -1926,7 +2073,9 @@
     }
 
     function getFilteredRecords() {
+      const scopedClientSet = new Set(getClientsByClassScope(state.selectedClass).map(c => c.name));
       return state.records.filter(r => {
+        if (!scopedClientSet.has(r.clientName)) return false;
         const classOk = state.selectedClass === "全部班級" || r.className === state.selectedClass;
         const clientOk = state.selectedClient === "全部個案" || r.clientName === state.selectedClient;
         return classOk && clientOk;
@@ -1981,12 +2130,15 @@
       syncToolbarSelectors();
       renderActiveView();
       fillFilters();
+      updateClassScopeLockUI();
+      renderNav();
       saveState();
     }
 
     function renderDashboard() {
       const host = document.getElementById("view-dashboard");
       const records = getFilteredRecords();
+      const scopedClientCount = getToolbarScopedClients({ respectSelectedClient: true }).length;
       const pendingUndoRequests = (state.tokenUndoRequests || []).filter(r => r.status === "pending");
       const ispMissingCount = state.clients.filter(c => {
         const list = state.isps.filter(i => i.clientName === c.name);
@@ -2002,7 +2154,7 @@
       const tokenToday = records.filter(r => r.date === today()).reduce((acc, r) => acc + r.tokenAward - r.tokenDeduct, 0);
       host.innerHTML = `
         <div class="cards">
-          <div class="card"><div class="muted">👤 個案</div><div class="metric">${state.clients.length}</div></div>
+          <div class="card"><div class="muted">👤 個案</div><div class="metric">${scopedClientCount}</div></div>
           <div class="card"><div class="muted">📋 今日完成</div><div class="metric">${completedCount}</div></div>
           <div class="card"><div class="muted">🪙 今日代幣</div><div class="metric">${tokenToday}</div></div>
           <div class="card"><div class="muted">📈 平均完成率</div><div class="metric">${avg}%</div></div>
@@ -2379,7 +2531,13 @@
 
     function renderRecords() {
       const host = document.getElementById("view-records");
-      const clientOptions = state.clients.map(c => `<option>${c.name}</option>`).join("");
+      const scopedRecordClients = getClientsByClassScope(state.selectedClass);
+      const selectedRecordClient = (state.selectedClient !== "全部個案" && scopedRecordClients.some(c => c.name === state.selectedClient))
+        ? state.selectedClient
+        : (scopedRecordClients[0] ? scopedRecordClients[0].name : "");
+      const clientOptions = scopedRecordClients.length
+        ? scopedRecordClients.map(c => `<option ${c.name === selectedRecordClient ? "selected" : ""}>${c.name}</option>`).join("")
+        : "<option value=\"\">目前範圍沒有個案</option>";
       const taskOptions = state.tasks.map(t => `<option>${t.name}</option>`).join("");
       const promptOptions = prompts.map(p => `<option>${p}</option>`).join("");
       if (!state.recordListFilter || typeof state.recordListFilter !== "object") {
@@ -2607,11 +2765,13 @@
         e.preventDefault();
         if (!can("record") && !can("all")) return alert("目前角色無新增每日紀錄權限");
         const fd = new FormData(form);
+        const clientName = String(fd.get("clientName") || "").trim();
+        if (!clientName) return alert("目前範圍沒有可用個案，請先切換班級或新增個案");
         const client = state.clients.find(c => c.name === fd.get("clientName"));
         const rec = {
           id: id(),
           date: fd.get("date"),
-          clientName: fd.get("clientName"),
+          clientName,
           className: client ? client.className : "未知班級",
           taskName: fd.get("taskName"),
           prompt: fd.get("prompt"),
@@ -2632,11 +2792,13 @@
       host.querySelector("#recordUpdateBtn").addEventListener("click", () => {
         if (!state.selectedRecordForEdit) return alert("請先按管理載入一筆紀錄");
         const fd = new FormData(form);
+        const clientName = String(fd.get("clientName") || "").trim();
+        if (!clientName) return alert("目前範圍沒有可用個案，請先切換班級或新增個案");
         const rec = state.records.find(x => x.id === state.selectedRecordForEdit);
         if (!rec) return;
-        const client = state.clients.find(c => c.name === fd.get("clientName"));
+        const client = state.clients.find(c => c.name === clientName);
         rec.date = fd.get("date");
-        rec.clientName = fd.get("clientName");
+        rec.clientName = clientName;
         rec.className = client ? client.className : rec.className;
         rec.taskName = fd.get("taskName");
         rec.prompt = fd.get("prompt");
@@ -2697,6 +2859,8 @@
 
     function renderTokens() {
       const host = document.getElementById("view-tokens");
+      const scopedClients = getToolbarScopedClients({ respectSelectedClient: true });
+      const scopedClientNames = new Set(scopedClients.map(c => c.name));
       const tokenByClient = {};
       const currentMonth = new Date().toISOString().slice(0, 7);
       const setupFilter = {
@@ -2722,12 +2886,12 @@
       };
       const validPeriods = ["本月", "本季", "全部", "自訂"];
       if (!validPeriods.includes(f.period)) f.period = "本月";
-      const validClientNames = new Set(state.clients.map(c => c.name));
+      const validClientNames = new Set(scopedClients.map(c => c.name));
       if (f.clientName !== "全部個案" && !validClientNames.has(f.clientName)) {
         f.clientName = "全部個案";
       }
       state.tokenExchangeFilter = f;
-      state.clients.forEach(c => tokenByClient[c.name] = 0);
+      scopedClients.forEach(c => tokenByClient[c.name] = 0);
       state.records.forEach(r => {
         if (tokenByClient[r.clientName] !== undefined) tokenByClient[r.clientName] += (r.tokenAward - r.tokenDeduct);
       });
@@ -2737,7 +2901,7 @@
 
       const clientKeyword = String(setupFilter.clientKeyword || "").trim().toLowerCase();
       const rewardKeyword = String(setupFilter.rewardKeyword || "").trim().toLowerCase();
-      const filteredTokenClients = state.clients
+      const filteredTokenClients = scopedClients
         .map(c => ({ name: c.name, className: c.className || "", token: Number(tokenByClient[c.name] || 0) }))
         .filter(row => {
           if (!clientKeyword) return true;
@@ -2758,11 +2922,17 @@
           .map(x => String(x.clientName))
       );
 
-      const clientOptions = state.clients.map(c => `<option>${c.name}</option>`).join("");
+      const allScopedForExchangeForm = getClientsByClassScope(state.selectedClass);
+      const selectedExchangeClient = (state.selectedClient !== "全部個案" && allScopedForExchangeForm.some(c => c.name === state.selectedClient))
+        ? state.selectedClient
+        : (allScopedForExchangeForm[0] ? allScopedForExchangeForm[0].name : "");
+      const clientOptions = allScopedForExchangeForm.length
+        ? allScopedForExchangeForm.map(c => `<option ${c.name === selectedExchangeClient ? "selected" : ""}>${c.name}</option>`).join("")
+        : "<option value=\"\">目前範圍沒有個案</option>";
       const rewardOptions = state.tokenShops.map(r => `<option value="${r.id}">${r.item}（預設 ${r.cost}）</option>`).join("");
       const filterClientList = f.onlyWithData
-        ? state.clients.map(c => c.name).filter(name => clientsWithExchangeData.has(name))
-        : state.clients.map(c => c.name);
+        ? scopedClients.map(c => c.name).filter(name => clientsWithExchangeData.has(name))
+        : scopedClients.map(c => c.name);
       const filterClientOptions = ["全部個案", ...filterClientList]
         .map(name => `<option ${f.clientName === name ? "selected" : ""}>${name}</option>`)
         .join("");
@@ -2781,7 +2951,7 @@
       const shouldShowExchangeFilterPanel = state.tokenExchanges.length > autoFilterThreshold
         || hasActiveExchangeFilter
         || !!f.showFilterPanel;
-      const monthlyStats = state.clients.map(c => {
+      const monthlyStats = scopedClients.map(c => {
         const list = state.tokenExchanges.filter(x => x.clientName === c.name && String(x.createdAtIso || "").startsWith(currentMonth));
         return {
           name: c.name,
@@ -2799,7 +2969,7 @@
               <div class="field"><label>關鍵字</label><input id="tokenClientKeywordFilter" value="${setupFilter.clientKeyword || ""}" placeholder="個案/班級/代幣"></div>
               <div class="field"><label>顯示筆數</label><select id="tokenClientMaxRows"><option value="20" ${setupFilter.clientMaxRows === 20 ? "selected" : ""}>20 筆</option><option value="50" ${setupFilter.clientMaxRows === 50 ? "selected" : ""}>50 筆</option><option value="100" ${setupFilter.clientMaxRows === 100 ? "selected" : ""}>100 筆</option><option value="200" ${setupFilter.clientMaxRows === 200 ? "selected" : ""}>200 筆</option></select></div>
             </div>
-            <p class="mini" style="margin:0 0 8px 0;">共 ${state.clients.length} 筆，符合篩選 ${filteredTokenClients.length} 筆，目前顯示 ${visibleTokenClients.length} 筆。</p>
+            <p class="mini" style="margin:0 0 8px 0;">目前範圍 ${scopedClients.length} 位個案，符合篩選 ${filteredTokenClients.length} 位，目前顯示 ${visibleTokenClients.length} 位。</p>
             <table>
               <thead><tr><th>個案</th><th>目前代幣</th><th>快速兌換</th></tr></thead>
               <tbody>
@@ -3157,6 +3327,7 @@
         const reward = state.tokenShops.find(r => r.id === fd.get("rewardId"));
         if (!reward) return;
         const clientName = String(fd.get("clientName"));
+        if (!clientName) return alert("目前範圍沒有可用個案，請先切換班級或新增個案");
         const exchangeDate = String(fd.get("exchangeDate") || "").trim() || today();
         const defaultCost = Number(reward.cost || 0);
         const rawCustomCost = String(fd.get("customCost") || "").trim();
@@ -3213,6 +3384,7 @@
           const reward = state.tokenShops.find(r => r.id === fd.get("rewardId"));
           if (!reward) return alert("請先選擇兌換項目");
           const clientName = String(fd.get("clientName"));
+          if (!clientName) return alert("目前範圍沒有可用個案，請先切換班級或新增個案");
           const exchangeDate = String(fd.get("exchangeDate") || "").trim() || today();
           const rawCustomCost = String(fd.get("customCost") || "").trim();
           const cost = rawCustomCost === "" ? Number(reward.cost || 0) : Number(rawCustomCost);
@@ -3407,6 +3579,7 @@
 
     function getFilteredTokenExchanges() {
       const f = state.tokenExchangeFilter || { period: "本月", clientName: "全部個案", startDate: "", endDate: "", keyword: "", maxRows: 20, onlyWithData: false, showFilterPanel: false };
+      const scopedClientNames = new Set(getToolbarScopedClients({ respectSelectedClient: true }).map(c => c.name));
       const now = new Date();
       const currentYear = now.getFullYear();
       const currentMonth = now.getMonth() + 1;
@@ -3436,6 +3609,7 @@
       };
 
       return state.tokenExchanges.filter(x => {
+        if (!scopedClientNames.has(x.clientName)) return false;
         const clientOk = f.clientName === "全部個案" || x.clientName === f.clientName;
         if (!clientOk) return false;
         const rewardName = x.rewardItem || x.item || x.rewardName || "";
@@ -3448,7 +3622,7 @@
         if (f.period === "本月") {
           periodOk = Number.isFinite(y) && Number.isFinite(m)
             ? ((y === currentYear && m === currentMonth) || createdMonthMatch)
-            : createdMonthMatch || true;
+            : createdMonthMatch;
         }
         if (f.period === "本季") {
           if (Number.isFinite(y) && Number.isFinite(m)) {
@@ -3515,7 +3689,15 @@
     function renderEmotion() {
       const host = document.getElementById("view-emotion");
       const permittedClients = getPermittedClientNames();
-      const clientOptions = permittedClients.map(name => `<option>${name}</option>`).join("");
+      const toolbarScopedNames = getToolbarScopedClients({ respectSelectedClient: true }).map(c => c.name);
+      const scopedClients = toolbarScopedNames.filter(name => permittedClients.includes(name));
+      const scopedClientSet = new Set(scopedClients);
+      const selectedEmotionClient = scopedClients.includes(state.selectedClient)
+        ? state.selectedClient
+        : (scopedClients[0] || "");
+      const clientOptions = scopedClients.length
+        ? scopedClients.map(name => `<option ${name === selectedEmotionClient ? "selected" : ""}>${name}</option>`).join("")
+        : "<option value=\"\">目前範圍沒有個案</option>";
       const serviceFilter = state.serviceFilter || { category: "全部", keyword: "", clientName: "全部個案" };
       const emotionBehaviorFilter = {
         emotionKeyword: "",
@@ -3578,10 +3760,13 @@
         });
         return merged;
       };
-      const serviceClientOptions = ["全部個案", ...permittedClients]
+      const serviceClientOptions = ["全部個案", ...scopedClients]
         .map(n => `<option ${serviceFilter.clientName === n ? "selected" : ""}>${n}</option>`).join("");
       const serviceCategoryOptions = ["全部", ...serviceCategories]
         .map(c => `<option ${serviceFilter.category === c ? "selected" : ""}>${c}</option>`).join("");
+      if (serviceFilter.clientName !== "全部個案" && !scopedClientSet.has(serviceFilter.clientName)) {
+        serviceFilter.clientName = "全部個案";
+      }
 
       host.innerHTML = `
         <div class="card">
@@ -3905,8 +4090,7 @@
       });
 
       const filteredEmotionRows = state.emotionRecords
-        .filter(r => permittedClients.includes(r.clientName))
-        .filter(r => state.selectedClient === "全部個案" || r.clientName === state.selectedClient)
+        .filter(r => scopedClientSet.has(r.clientName))
         .filter(r => {
           if (emotionDateFrom && r.date < emotionDateFrom) return false;
           if (emotionDateTo && r.date > emotionDateTo) return false;
@@ -3930,8 +4114,7 @@
       `).join("") || "<tr><td colspan='8'>尚無情緒紀錄</td></tr>";
 
       const filteredAbcRows = state.behaviorEvents
-        .filter(r => permittedClients.includes(r.clientName))
-        .filter(r => state.selectedClient === "全部個案" || r.clientName === state.selectedClient)
+        .filter(r => scopedClientSet.has(r.clientName))
         .filter(r => {
           if (abcDateFrom && r.date < abcDateFrom) return false;
           if (abcDateTo && r.date > abcDateTo) return false;
@@ -3990,8 +4173,7 @@
         const clientOk = serviceFilter.clientName === "全部個案" || r.clientName === serviceFilter.clientName;
         const keyword = String(serviceFilter.keyword || "").trim().toLowerCase();
         const keywordOk = !keyword || `${r.title || ""} ${r.detail || ""}`.toLowerCase().includes(keyword);
-        const selectedClientOk = state.selectedClient === "全部個案" || r.clientName === state.selectedClient;
-        return permittedClients.includes(r.clientName) && categoryOk && clientOk && keywordOk && selectedClientOk;
+        return scopedClientSet.has(r.clientName) && categoryOk && clientOk && keywordOk;
       });
       const serviceTable = host.querySelector("#serviceTable");
       serviceTable.innerHTML = filteredServices.slice(0, 80).map(r => `
@@ -4530,11 +4712,19 @@
     function renderIsp() {
       const host = document.getElementById("view-isp");
       const permittedClients = getPermittedClientNames();
-      const clientOptions = permittedClients.map(name => `<option>${name}</option>`).join("");
-      const byClient = state.selectedClient === "全部個案" ? state.isps : state.isps.filter(i => i.clientName === state.selectedClient);
+      const toolbarScopedNames = getToolbarScopedClients({ respectSelectedClient: true }).map(c => c.name);
+      const scopedClients = toolbarScopedNames.filter(name => permittedClients.includes(name));
+      const scopedClientSet = new Set(scopedClients);
+      const selectedIspClient = scopedClients.includes(state.selectedClient)
+        ? state.selectedClient
+        : (scopedClients[0] || "");
+      const clientOptions = scopedClients.length
+        ? scopedClients.map(name => `<option ${name === selectedIspClient ? "selected" : ""}>${name}</option>`).join("")
+        : "<option value=\"\">目前範圍沒有個案</option>";
+      const byClient = state.isps.filter(i => scopedClientSet.has(i.clientName));
       const ispListFilterMode = state.ispListFilterMode || "全部";
       const ispScopePackages = state.clients
-        .filter(c => state.selectedClient === "全部個案" || c.name === state.selectedClient)
+        .filter(c => scopedClientSet.has(c.name))
         .map(c => {
           const entries = byClient.filter(i => i.clientName === c.name);
           const latestEntry = entries
@@ -4960,7 +5150,8 @@
       }
 
       function findNextMissingClient(afterClientName) {
-        const names = state.clients.map(c => c.name);
+        const names = scopedClients.slice();
+        if (!names.length) return "";
         const start = Math.max(0, names.indexOf(afterClientName));
         for (let i = start + 1; i < names.length; i++) {
           if (!isClientIspComplete(names[i])) return names[i];
@@ -5267,7 +5458,7 @@
 
       const quickDefaultClient = state.selectedIspForEdit
         || String(form.elements["clientName"].value || "").trim()
-        || permittedClients[0]
+        || scopedClients[0]
         || "";
       if (quickDefaultClient) {
         fillQuickFormByClient(quickDefaultClient);
@@ -5404,7 +5595,7 @@
       });
 
       const targetClient = state.selectedClient === "全部個案"
-        ? (state.clients[0] ? state.clients[0].name : "")
+        ? (scopedClients[0] || "")
         : state.selectedClient;
       const targetIsp = state.isps.find(i => i.clientName === targetClient) || state.isps[0];
       const data = targetIsp ? targetIsp.progress : [0, 0, 0, 0];
@@ -5575,30 +5766,31 @@
         }
       });
       applyLevelDefaults({ force: created });
-      syncAnalysisFiltersWithToolbar();
+      syncAnalysisFiltersWithToolbar({ force: true });
     }
 
-    function syncAnalysisFiltersWithToolbar() {
+    function syncAnalysisFiltersWithToolbar({ force = false } = {}) {
       if (!state.chartFilters) return;
       const toolbarClass = state.selectedClass;
       const toolbarClient = state.selectedClient;
-      const classOptions = ["全部班級", ...state.classes];
       Object.keys(state.chartFilters).forEach(key => {
         const filter = state.chartFilters[key];
         if (!filter) return;
 
-        if (toolbarClass !== "全部班級" && classOptions.includes(toolbarClass) && filter.className === "全部班級") {
+        if (force || filter.className !== toolbarClass) {
           filter.className = toolbarClass;
         }
 
-        let clientList = getClientsByClass(filter.className);
-        if (toolbarClient !== "全部個案" && filter.clientName === "全部個案" && clientList.includes(toolbarClient)) {
-          filter.clientName = toolbarClient;
+        const clientList = getClientsByClass(filter.className);
+        let nextClient = "全部個案";
+        if (toolbarClient !== "全部個案" && clientList.includes(toolbarClient)) {
+          nextClient = toolbarClient;
         }
-
-        clientList = getClientsByClass(filter.className);
-        if (filter.clientName !== "全部個案" && !clientList.includes(filter.clientName)) {
-          filter.clientName = clientList[0] || "全部個案";
+        if (!force && toolbarClient === "全部個案" && filter.clientName !== "全部個案" && clientList.includes(filter.clientName)) {
+          nextClient = filter.clientName;
+        }
+        if (force || filter.clientName !== nextClient) {
+          filter.clientName = nextClient;
         }
       });
     }
@@ -5639,13 +5831,19 @@
 
     function renderChartFilter(key) {
       const f = state.chartFilters[key];
-      const classOpts = ["全部班級", ...state.classes].map(v => `<option ${f.className === v ? "selected" : ""}>${v}</option>`).join("");
+      const lockedClass = getLockedClassName();
+      const lockActive = isClassScopeLockActive() && !!lockedClass;
+      const classPool = lockActive ? [lockedClass] : state.classes;
+      const classValues = lockActive ? classPool : ["全部班級", ...classPool];
+      const classLockAttrs = lockActive ? 'disabled title="班級鎖定模式中，請先解除鎖定再切換班級"' : "";
+      const classLockHint = lockActive ? '<div class="field-hint locked">鎖定模式中：請先解除鎖定，才能切換班級</div>' : "";
+      const classOpts = classValues.map(v => `<option ${f.className === v ? "selected" : ""}>${v}</option>`).join("");
       const clientOpts = ["全部個案", ...getClientsByClass(f.className)].map(v => `<option ${f.clientName === v ? "selected" : ""}>${v}</option>`).join("");
       const workOpts = ["全部工作", ...state.tasks.map(t => t.name)].map(v => `<option ${f.taskName === v ? "selected" : ""}>${v}</option>`).join("");
       return `
         <div class="grid-4">
           <div class="field"><label>日期</label><select data-ckey="${key}" data-cfield="period"><option ${f.period === "今日" ? "selected" : ""}>今日</option><option ${f.period === "本週" ? "selected" : ""}>本週</option><option ${f.period === "本月" ? "selected" : ""}>本月</option><option ${f.period === "自訂" ? "selected" : ""}>自訂</option></select></div>
-          <div class="field"><label>班級</label><select data-ckey="${key}" data-cfield="className">${classOpts}</select></div>
+          <div class="field"><label>班級</label><select class="analysis-class-select" data-ckey="${key}" data-cfield="className" ${classLockAttrs}>${classOpts}</select>${classLockHint}</div>
           <div class="field"><label>個案</label><select data-ckey="${key}" data-cfield="clientName">${clientOpts}</select></div>
           <div class="field"><label>工作項目</label><select data-ckey="${key}" data-cfield="taskName">${workOpts}</select></div>
         </div>
@@ -5665,10 +5863,9 @@
       });
 
       document.getElementById("syncToolbarFilterBtn").addEventListener("click", () => {
-        state.selectedClass = state.chartFilters.completion.className;
-        state.selectedClient = state.chartFilters.completion.clientName;
-        fillFilters();
-        log("同步篩選", "分析中心 -> 工具列");
+        syncAnalysisFiltersWithToolbar({ force: true });
+        renderAnalysis();
+        log("同步篩選", "工具列 -> 分析中心");
       });
 
       document.getElementById("syncAllAnalysisFiltersBtn").addEventListener("click", () => {
@@ -5685,30 +5882,32 @@
           const key = e.target.dataset.ckey;
           const field = e.target.dataset.cfield;
           const nextValue = e.target.value;
-          if (state.chartFilters[key][field] === nextValue && field !== "className") return;
-          state.chartFilters[key][field] = nextValue;
+          if (!state.chartFilters[key]) return;
+
           if (field === "className") {
-            state.lastAnalysisFilterSourceKey = key;
-            const clientOptions = getClientsByClass(nextValue);
-            const currentClient = state.chartFilters[key].clientName;
-            if (state.analysisLevel === "個人") {
-              state.chartFilters[key].clientName = clientOptions.includes(currentClient)
-                ? currentClient
-                : (clientOptions[0] || "全部個案");
-            } else if (currentClient !== "全部個案" && !clientOptions.includes(currentClient)) {
-              state.chartFilters[key].clientName = clientOptions[0] || "全部個案";
+            state.selectedClass = nextValue;
+            state.selectedClient = "全部個案";
+            fillFilters();
+            syncAnalysisFiltersWithToolbar({ force: true });
+            renderAnalysis();
+            return;
+          }
+
+          if (field === "clientName") {
+            state.selectedClient = nextValue;
+            if (nextValue !== "全部個案") {
+              const client = state.clients.find(x => x.name === nextValue);
+              if (client) state.selectedClass = client.className;
             }
+            fillFilters();
+            syncAnalysisFiltersWithToolbar({ force: true });
+            renderAnalysis();
+            return;
           }
-          if (field === "clientName" && state.analysisLevel === "個人" && nextValue === "全部個案") {
-            state.lastAnalysisFilterSourceKey = key;
-            const list = getClientsByClass(state.chartFilters[key].className);
-            if (list.length) {
-              state.chartFilters[key].clientName = list[0];
-            }
-          }
-          if (field === "clientName" && nextValue !== "全部個案") {
-            state.lastAnalysisFilterSourceKey = key;
-          }
+
+          if (state.chartFilters[key][field] === nextValue) return;
+          state.chartFilters[key][field] = nextValue;
+          state.lastAnalysisFilterSourceKey = key;
           if (key === "completion") {
             state.chartFilters.overview = { ...state.chartFilters.completion };
           }
@@ -5781,8 +5980,12 @@
     }
 
     function getClientsByClass(className) {
+      const lockedClass = getLockedClassName();
+      const effectiveClassName = (className === "全部班級" && isClassScopeLockActive() && lockedClass)
+        ? lockedClass
+        : className;
       return state.clients
-        .filter(c => className === "全部班級" || c.className === className)
+        .filter(c => (effectiveClassName === "全部班級" || c.className === effectiveClassName) && canAccessClientByRole(c.name))
         .map(c => c.name);
     }
 
@@ -6242,8 +6445,10 @@
     function renderReports() {
       const host = document.getElementById("view-reports");
       ensureReportSeed();
-      const reportClassValue = state.report.className || state.selectedClass;
-      const reportClientValue = state.report.clientName || state.selectedClient;
+      state.report.className = state.selectedClass;
+      state.report.clientName = state.selectedClient;
+      const reportClassValue = state.selectedClass;
+      const reportClientValue = state.selectedClient;
       host.innerHTML = `
         <div class="report-layout">
           <div>
@@ -6251,8 +6456,8 @@
               <h3>報告編輯區</h3>
               <div class="grid-4">
                 <div class="field"><label>報告名稱</label><input id="reportTitle" value="${state.report.title}"></div>
-                <div class="field"><label>班級</label><input id="reportClass" value="${reportClassValue}"></div>
-                <div class="field"><label>個案</label><input id="reportClient" value="${reportClientValue}"></div>
+                <div class="field"><label>班級（以上方篩選為準）</label><input id="reportClass" value="${reportClassValue}" disabled></div>
+                <div class="field"><label>個案（以上方篩選為準）</label><input id="reportClient" value="${reportClientValue}" disabled></div>
                 <div class="field"><label>篩選條件</label><select id="reportPeriod"><option>本月</option><option>本季</option><option>自訂</option></select></div>
               </div>
               <div class="actions">
@@ -6361,13 +6566,11 @@
 
     function applyReportEditorState(host) {
       const title = String(host.querySelector("#reportTitle")?.value || "").trim();
-      const className = String(host.querySelector("#reportClass")?.value || "").trim();
-      const clientName = String(host.querySelector("#reportClient")?.value || "").trim();
       const period = String(host.querySelector("#reportPeriod")?.value || "本月").trim() || "本月";
       state.report.title = title || "ISP 成果報告";
       state.report.period = period;
-      state.report.className = className || state.selectedClass;
-      state.report.clientName = clientName || state.selectedClient;
+      state.report.className = state.selectedClass;
+      state.report.clientName = state.selectedClient;
     }
 
     function ensureReportSeed() {
@@ -6443,7 +6646,10 @@
     }
 
     function buildOneClickIspReport() {
-      const targetClient = state.selectedClient !== "全部個案" ? state.selectedClient : (state.clients[0] ? state.clients[0].name : "王小明");
+      const scopedClients = getToolbarScopedClients({ respectSelectedClient: true });
+      const targetClient = state.selectedClient !== "全部個案"
+        ? state.selectedClient
+        : (scopedClients[0] ? scopedClients[0].name : (state.clients[0] ? state.clients[0].name : "王小明"));
       state.report.title = `${targetClient} ISP 成果報告`;
       state.report.period = "本月";
       state.reportItems = [];
@@ -6670,6 +6876,7 @@
 
     function renderSettings() {
       const host = document.getElementById("view-settings");
+      ensureClassScopeLockState();
       const taskFilter = {
         keyword: "",
         category: "全部類別",
@@ -6709,9 +6916,21 @@
       const shouldShowTaskFilterPanel = state.tasks.length > taskFilterThreshold
         || hasActiveTaskFilter
         || !!taskFilter.showFilterPanel;
+      const lockClassName = getLockedClassName() || state.classes[0] || "";
+      const lockEnabled = isClassScopeLockActive();
 
       host.innerHTML = `
         <div class="grid-2">
+          <div class="card" style="grid-column: 1 / -1;">
+            <h3>班級操作鎖定</h3>
+            <p class="mini">啟用後，管理員/督導僅能操作單一班級資料；工具列與分析/報告篩選會同步鎖定。</p>
+            <form id="classScopeLockForm" class="grid-4">
+              <div class="field"><label>啟用鎖定</label><label style="display:flex; align-items:center; gap:6px; margin-top:8px;"><input type="checkbox" name="lockEnabled" ${lockEnabled ? "checked" : ""}> 只允許單一班級操作</label></div>
+              <div class="field"><label>鎖定班級</label><select name="lockClassName">${state.classes.map(c => `<option ${c === lockClassName ? "selected" : ""}>${c}</option>`).join("")}</select></div>
+              <div class="actions" style="align-items:end;"><button class="btn primary" type="submit">套用鎖定設定</button></div>
+            </form>
+          </div>
+
           <div class="card">
             <h3>班級設定（可新增與編輯）</h3>
             <form id="classForm" class="grid-3">
@@ -6808,9 +7027,26 @@
     }
 
     function bindSettingHandlers(host) {
+      const classScopeLockForm = host.querySelector("#classScopeLockForm");
       const syncLinkForm = host.querySelector("#syncLinkForm");
       const syncLinkPreview = host.querySelector("#syncLinkPreview");
       const copySyncLinkBtn = host.querySelector("#copySyncLinkBtn");
+
+      if (classScopeLockForm) {
+        classScopeLockForm.addEventListener("submit", e => {
+          e.preventDefault();
+          const lockEnabled = !!classScopeLockForm.elements["lockEnabled"].checked;
+          const lockClassName = String(classScopeLockForm.elements["lockClassName"].value || "").trim();
+          if (lockEnabled && !lockClassName) return alert("請先選擇要鎖定的班級");
+          state.classScopeLock.enabled = lockEnabled;
+          state.classScopeLock.className = lockClassName || (state.classes[0] || "");
+          ensureClassScopeLockState();
+          applyClassScopeLock();
+          fillFilters();
+          log("班級鎖定設定", `${state.classScopeLock.enabled ? "啟用" : "停用"}${state.classScopeLock.enabled ? ` / ${state.classScopeLock.className}` : ""}`);
+          renderAll();
+        });
+      }
 
       if (syncLinkForm && syncLinkPreview) {
         syncLinkForm.addEventListener("submit", async e => {
@@ -6904,6 +7140,9 @@
         state.clients.forEach(c => { if (c.className === prev) c.className = next; });
         state.teachers.forEach(t => { if (t.className === prev) t.className = next; });
         state.records.forEach(r => { if (r.className === prev) r.className = next; });
+        if (state.classScopeLock && state.classScopeLock.className === prev) {
+          state.classScopeLock.className = next;
+        }
         log("修改班級", `${prev} -> ${next}`);
         renderAll();
       });
@@ -6915,6 +7154,10 @@
         state.clients = state.clients.filter(c => c.className !== state.selectedClassForEdit);
         state.teachers = state.teachers.filter(t => t.className !== state.selectedClassForEdit);
         state.records = state.records.filter(r => r.className !== state.selectedClassForEdit);
+        if (state.classScopeLock && state.classScopeLock.className === state.selectedClassForEdit) {
+          state.classScopeLock.className = state.classes[0] || "";
+          if (!state.classScopeLock.className) state.classScopeLock.enabled = false;
+        }
         log("刪除班級", state.selectedClassForEdit);
         state.selectedClassForEdit = null;
         renderAll();

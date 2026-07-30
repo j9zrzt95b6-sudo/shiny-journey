@@ -21,15 +21,15 @@ chmod +x scripts/deploy-cloudflare.sh scripts/cloudflare-healthcheck.sh
 
 若健康檢查回傳 storage 不是 d1，代表部署時可能使用了錯誤設定來源，請重新執行部署腳本。
 
-## 🌐 前端重新部署（Netlify）
+## 🌐 前端重新部署（GitHub Pages）
 
 ```bash
-cp .env.netlify.example .env.netlify
-# 編輯 .env.netlify 填入 NETLIFY_AUTH_TOKEN
-
-chmod +x scripts/deploy-netlify.sh
-./scripts/deploy-netlify.sh
+git add -A
+git commit -m "Update deploy workflows and sync docs"
+git push origin main
 ```
+
+GitHub Pages 會在 `main` 推送後自動重新部署；若你要保留本機預覽，仍可使用 `scripts/start-preview.sh`。
 
 ---
 
@@ -68,7 +68,7 @@ http://localhost:8000/sync-test.html
 ### 步驟 2：配置同步參數
 - 同步碼：test-sync-2026
 - API 位址：https://smart-care-sync-api.j9zrzt95b6.workers.dev/state
-  （或使用 Netlify Functions: /.netlify/functions/state）
+   （或使用本地測試工具；正式後端以 Cloudflare Workers 為主）
 
 ### 步驟 3：檢查 API 連接
 1. 點擊「檢查同步狀態」按鈕
@@ -118,7 +118,7 @@ http://localhost:8000/sync-test.html
 
 1. **檢查 API 位址**
    - Cloudflare Workers：https://smart-care-sync-api.j9zrzt95b6.workers.dev/state
-   - Netlify Functions：https://your-domain/.netlify/functions/state
+   - 若使用舊版本機測試，請確認 API 位址是否仍指向 Cloudflare Workers
 
 2. **檢查網路連接**
    ```bash

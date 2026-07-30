@@ -61,6 +61,12 @@ chmod +x scripts/deploy-cloudflare.sh
 ./scripts/deploy-cloudflare.sh
 ```
 
+若要在部署後立即做公開 API 驗證（檢查是否已切到 D1）：
+
+```bash
+./scripts/deploy-cloudflare.sh --verify-public --api-url "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state"
+```
+
 `scripts/deploy-cloudflare.sh` 會自動讀取 `.env.cloudflare` 或 `.env.cloudflare.local`。
 若你要單次覆蓋也可以：
 
@@ -99,6 +105,14 @@ chmod +x scripts/cloudflare-healthcheck.sh
 ./scripts/cloudflare-healthcheck.sh "https://your-worker.workers.dev/state"
 ```
 
+若目前終端尚未設定 Cloudflare 憑證（只想檢查線上 API 是否已切到 D1）：
+
+```bash
+./scripts/cloudflare-healthcheck.sh --public-only
+```
+
+此模式會略過 `wrangler whoami` 與 D1 CLI 查詢，只驗證公開 API 回應是否為 `"storage":"d1"`。
+
 ## 7) 確認真的寫入資料庫
 
 ```bash
@@ -106,3 +120,28 @@ npx --yes wrangler d1 execute smart-care-sync --remote --command "SELECT sync_ke
 ```
 
 若看到資料列，表示跨裝置資料已持久化到 D1，不受單一裝置 localStorage 容量限制。
+
+## 8) Dashboard 2 分鐘核對清單（D1 最新部署）
+
+若 API 回傳 `"storage":"kv"`，代表目前仍在 KV 備援，尚未切到 D1。
+
+請在 Cloudflare Dashboard 檢查：
+
+1. Workers & Pages -> 你的 Worker（例如 `smart-care-sync-api`）
+2. Settings -> Variables / Bindings
+3. D1 Databases 需有 binding 名稱：`DB`
+4. 綁定資料庫名稱需對應：`smart-care-sync`
+5. 若只有 KV 綁定、沒有 D1 綁定，請補上後重新 Deploy
+
+重新部署與驗證：
+
+```bash
+./scripts/deploy-cloudflare.sh --verbose
+./scripts/cloudflare-healthcheck.sh
+curl -fsS "https://smart-care-sync-api.j9zrzt95b6.workers.dev/state?key=verify-$(date +%s)"
+```
+
+驗收標準：
+
+- `cloudflare-healthcheck.sh` 全部步驟通過
+- 最後 GET 回傳 `"storage":"d1"`

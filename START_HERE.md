@@ -1,6 +1,11 @@
 🎉 跨裝置同步測試 - 完整準備就緒
 ====================================
 
+## 🌐 正式版入口（最新）
+
+- 正式版網頁：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
+- 備註：此連結已內含 `syncKey` 與 `syncApi`，可直接提供現場人員開啟使用。
+
 ## ✅ 已完成的工作
 
 ### 1️⃣ 測試工具建立
@@ -38,14 +43,14 @@ chmod +x scripts/deploy-cloudflare.sh scripts/cloudflare-healthcheck.sh
 ./scripts/cloudflare-healthcheck.sh
 ```
 
-### 5️⃣ 網頁前端重新部署（Netlify）
+### 5️⃣ 網頁前端重新部署（GitHub Pages）
 ```bash
-cp .env.netlify.example .env.netlify
-# 編輯 .env.netlify 填入 NETLIFY_AUTH_TOKEN
-
-chmod +x scripts/deploy-netlify.sh
-./scripts/deploy-netlify.sh
+git add -A
+git commit -m "Update deploy workflows and sync docs"
+git push origin main
 ```
+
+GitHub Pages 會在 `main` 推送後自動重新部署；Cloudflare 則維持使用 `scripts/deploy-cloudflare.sh` 與 `scripts/cloudflare-healthcheck.sh`。
 
 ---
 

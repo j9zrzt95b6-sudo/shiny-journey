@@ -1,5 +1,10 @@
 # 跨裝置同步測試指南
 
+## 正式版入口（最新）
+
+- 正式版網頁：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
+- 說明：此連結已內含同步碼與 API，可直接開啟後按「立即同步」驗證。
+
 ## 快速開始
 
 ### 先確認後端健康狀態（建議先做）
@@ -21,7 +26,7 @@ cp .env.cloudflare.example .env.cloudflare
 #### 第一步：設定同步碼
 1. **電腦**：打開設定 → 跨裝置同步連結
 2. 確認同步碼（例如 `test-sync-2026-07-26`）
-3. 確認同步 API 位址已填入（Cloudflare Workers 或 Netlify Functions）
+3. 確認同步 API 位址已填入（Cloudflare Workers）
 4. **手機**：在地址欄輸入電腦複製的同步連結，或手動填入同步碼+API位址
 
 #### 第二步：電腦端添加資料
@@ -99,7 +104,7 @@ cp .env.cloudflare.example .env.cloudflare
 ### 問題 1：手機端按「立即同步」後無反應
 **可能原因**：
 - API 位址未正確填入（檢查設定 → 同步 API 位址）
-- API 服務未啟動或無法連線（檢查 Cloudflare Workers/Netlify 狀態）
+- API 服務未啟動或無法連線（檢查 Cloudflare Workers 狀態）
 - 同步碼不正確（手動重新貼上）
 
 **快速確認**：
@@ -150,7 +155,7 @@ cp .env.cloudflare.example .env.cloudflare
 
 如需清理測試資料：
 1. **本機 LocalStorage**：設定 → 資料維護 → 「清除範例資料」
-2. **雲端資料**：同時清除 Cloudflare KV/Netlify Blobs 中的對應同步碼資料
+2. **雲端資料**：同時清除 Cloudflare KV 中的對應同步碼資料
 3. 建議保留一個穩定的同步碼用於長期測試
 
 ---

@@ -1,6 +1,11 @@
 快速測試指南：電腦修改 → 手機同步驗證
 ===============================================
 
+## 🌐 正式版入口（最新）
+
+- 正式版網頁：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
+- 說明：連結已內含同步碼與 API，現場可直接開啟測試，不需手動再輸入。
+
 ## 📋 建立的測試工具
 
 1. **sync-test.html** ⭐ 推薦

@@ -5,7 +5,7 @@
 
 | 項目 | 生產環境（GitHub Pages） | 本地測試工具 |
 |------|-------------------------|-----------|
-| **URL** | https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a | http://localhost:8000/sync-test.html |
+| **URL** | https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate | http://localhost:8000/sync-test.html |
 | **用途** | 實際應用系統（Smart Care）| 跨裝置同步驗證工具 |
 | **同步碼** | center-a（或自訂） | test-sync-2026 |
 | **API** | Cloudflare Workers | 相同 API（可共用） |
@@ -20,7 +20,7 @@
 
 #### 電腦端
 ```
-打開：https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+打開：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 設定：
   • 確認同步碼為 center-a
   • 確認 API 位址為 Cloudflare Workers
@@ -29,7 +29,7 @@
 
 #### 手機端
 ```
-打開：https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+打開：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 操作：
   • 手機應自動使用相同同步碼
   • 點「立即同步」拉取最新資料
@@ -79,7 +79,7 @@
 #### 步驟
 1. **電腦端**：打開官方應用
    ```
-   https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+   https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
    新增個案並點「立即同步」
    ```
 
@@ -110,8 +110,8 @@
 
 第二階段：生產環境官方應用
 ━━━━━━━━━━━━━━━━━
-• 電腦：https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
-• 手機：https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+• 電腦：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
+• 手機：https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 • 同步碼：center-a
 • 驗證生產環境功能正常
 
@@ -127,7 +127,7 @@
 
 ## 📋 快速檢查清單
 
-### 使用官方應用 (https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a)
+### 使用官方應用 (https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate)
 
 - [ ] 頁面能正常加載
 - [ ] 同步碼自動顯示 center-a
@@ -151,14 +151,14 @@
 
 ### 生產環境（官方應用）
 ```
-🌐 一般訪問
-https://j9zrzt95b6-sudo.github.io/shiny-journey/
+🌐 一般訪問（建議）
+https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
 🌐 帶同步碼
-https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
 🌐 帶自訂同步碼
-https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=YOUR-SYNC-KEY
+https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=YOUR-SYNC-KEY&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 ```
 
 ### 本地開發環境（測試工具）
@@ -212,7 +212,7 @@ http://localhost:8000/official.html
 **推薦：使用官方應用**
 ```
 1. 電腦打開：
-   https://j9zrzt95b6-sudo.github.io/shiny-journey/?syncKey=center-a
+   https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
 2. 手機打開相同地址
 
