@@ -2128,8 +2128,8 @@
 
     function renderAll() {
       syncToolbarSelectors();
-      renderActiveView();
       fillFilters();
+      renderActiveView();
       updateClassScopeLockUI();
       renderNav();
       saveState();
@@ -6445,10 +6445,12 @@
     function renderReports() {
       const host = document.getElementById("view-reports");
       ensureReportSeed();
-      state.report.className = state.selectedClass;
-      state.report.clientName = state.selectedClient;
+      syncReportScopeWithToolbar();
       const reportClassValue = state.selectedClass;
       const reportClientValue = state.selectedClient;
+      const reportYearValue = Number(state.report.year) || new Date().getFullYear();
+      const isCustomPeriod = (state.report.period || "本月") === "自訂";
+      const isYearlyPeriod = (state.report.period || "本月") === "年度";
       host.innerHTML = `
         <div class="report-layout">
           <div>
@@ -6458,7 +6460,10 @@
                 <div class="field"><label>報告名稱</label><input id="reportTitle" value="${state.report.title}"></div>
                 <div class="field"><label>班級（以上方篩選為準）</label><input id="reportClass" value="${reportClassValue}" disabled></div>
                 <div class="field"><label>個案（以上方篩選為準）</label><input id="reportClient" value="${reportClientValue}" disabled></div>
-                <div class="field"><label>篩選條件</label><select id="reportPeriod"><option>本月</option><option>本季</option><option>自訂</option></select></div>
+                <div class="field"><label>篩選條件</label><select id="reportPeriod"><option>本月</option><option>本季</option><option>年度</option><option>自訂</option></select></div>
+                <div class="field ${isYearlyPeriod ? "" : "hidden"}" id="reportYearField"><label>年度</label><input id="reportYear" type="number" min="2000" max="2100" value="${reportYearValue}"></div>
+                <div class="field ${isCustomPeriod ? "" : "hidden"}" id="reportStartDateField"><label>自訂起日</label><input id="reportStartDate" type="date" value="${state.report.startDate || ""}"></div>
+                <div class="field ${isCustomPeriod ? "" : "hidden"}" id="reportEndDateField"><label>自訂迄日</label><input id="reportEndDate" type="date" value="${state.report.endDate || ""}"></div>
               </div>
               <div class="actions">
                 <button class="btn" id="addCurrentChartBtn">加入目前圖表（PNG）</button>
@@ -6513,10 +6518,24 @@
         </div>
       `;
 
-      host.querySelector("#reportPeriod").value = state.report.period || "本月";
+      const reportPeriodSelect = host.querySelector("#reportPeriod");
+      reportPeriodSelect.value = state.report.period || "本月";
+      const reportYearField = host.querySelector("#reportYearField");
+      const reportStartDateField = host.querySelector("#reportStartDateField");
+      const reportEndDateField = host.querySelector("#reportEndDateField");
+      const syncReportPeriodFields = () => {
+        const period = String(reportPeriodSelect.value || "本月");
+        reportYearField?.classList.toggle("hidden", period !== "年度");
+        const showCustom = period === "自訂";
+        reportStartDateField?.classList.toggle("hidden", !showCustom);
+        reportEndDateField?.classList.toggle("hidden", !showCustom);
+      };
+      syncReportPeriodFields();
+      reportPeriodSelect.addEventListener("change", syncReportPeriodFields);
       host.querySelector("#exportExcelBtn").addEventListener("click", exportExcel);
       host.querySelector("#previewReportBtn").addEventListener("click", () => {
         applyReportEditorState(host);
+        syncReportItemsDynamicContent();
         renderReportCollection();
         renderReportPreviewPages();
         const previewCard = host.querySelector("#reportPreview");
@@ -6560,6 +6579,7 @@
         btn.addEventListener("click", () => addTemplateItem(btn.dataset.addTemplate));
       });
 
+      syncReportItemsDynamicContent();
       renderReportCollection();
       renderReportPreviewPages();
     }
@@ -6567,20 +6587,61 @@
     function applyReportEditorState(host) {
       const title = String(host.querySelector("#reportTitle")?.value || "").trim();
       const period = String(host.querySelector("#reportPeriod")?.value || "本月").trim() || "本月";
-      state.report.title = title || "ISP 成果報告";
+      const reportYearInput = Number(host.querySelector("#reportYear")?.value || new Date().getFullYear());
+      const reportYear = Number.isFinite(reportYearInput) && reportYearInput >= 2000 && reportYearInput <= 2100
+        ? Math.floor(reportYearInput)
+        : new Date().getFullYear();
+      const startDate = String(host.querySelector("#reportStartDate")?.value || "").trim();
+      const endDate = String(host.querySelector("#reportEndDate")?.value || "").trim();
+      const suggestedTitle = buildSuggestedReportTitle({ className: state.selectedClass, clientName: state.selectedClient });
+      const nextTitle = title || suggestedTitle;
+      state.report.title = nextTitle;
+      state.report.titleManual = nextTitle !== suggestedTitle;
       state.report.period = period;
+      state.report.year = reportYear;
+      state.report.startDate = period === "自訂" ? startDate : "";
+      state.report.endDate = period === "自訂" ? endDate : "";
       state.report.className = state.selectedClass;
       state.report.clientName = state.selectedClient;
+    }
+
+    function buildSuggestedReportTitle({ className, clientName }) {
+      if (clientName && clientName !== "全部個案") return `${clientName} ISP 成果報告`;
+      if (className && className !== "全部班級") return `${className} 班級成果報告`;
+      return "ISP 成果報告";
+    }
+
+    function isLikelyAutoReportTitle(title) {
+      const t = String(title || "").trim();
+      if (!t) return true;
+      return /ISP\s*成果報告$/.test(t) || /班級成果報告$/.test(t);
+    }
+
+    function syncReportScopeWithToolbar() {
+      if (!state.report) return;
+      state.report.className = state.selectedClass;
+      state.report.clientName = state.selectedClient;
+      const suggestedTitle = buildSuggestedReportTitle({ className: state.selectedClass, clientName: state.selectedClient });
+      const currentTitle = String(state.report.title || "").trim();
+      const shouldAutoSyncTitle = state.report.titleManual !== true || isLikelyAutoReportTitle(currentTitle);
+      if (shouldAutoSyncTitle) {
+        state.report.title = suggestedTitle;
+        state.report.titleManual = false;
+      }
     }
 
     function ensureReportSeed() {
       if (!state.report) {
         state.report = {
           id: id(),
-          title: "本月 ISP 成果報告",
+          title: buildSuggestedReportTitle({ className: state.selectedClass, clientName: state.selectedClient }),
           createdBy: "系統管理員",
           createdAt: new Date().toLocaleString("zh-TW"),
           period: "本月",
+          year: new Date().getFullYear(),
+          startDate: "",
+          endDate: "",
+          titleManual: false,
           className: state.selectedClass,
           clientName: state.selectedClient
         };
@@ -6604,7 +6665,7 @@
         chartData: summarizeCurrentData(),
         aiText: buildAutoAiSummary(),
         png,
-        filterText: state.report.period || "本月"
+        filterText: buildReportFilterText(state.report)
       };
       pushReportItem(payload);
       log("加入報告", "加入目前圖表（PNG）");
@@ -6617,7 +6678,7 @@
         item_ref_id: "ai-summary",
         title: "AI 成果摘要",
         text: buildAutoAiSummary(),
-        filterText: state.report.period || "本月"
+        filterText: buildReportFilterText(state.report)
       };
       pushReportItem(payload);
       if (!silent) {
@@ -6635,8 +6696,8 @@
         chartData: isChart ? summarizeCurrentData() : null,
         text: !isChart ? `${name} 已加入，正式版可綁定實際檔案。` : "",
         aiText: isChart ? buildAutoAiSummary() : "",
-        png: isChart ? getCanvasPng(getCanvasByTemplate(name)) : "",
-        filterText: state.report.period || "本月"
+        png: "",
+        filterText: buildReportFilterText(state.report)
       };
       pushReportItem(payload);
       if (!silent) {
@@ -6651,6 +6712,7 @@
         ? state.selectedClient
         : (scopedClients[0] ? scopedClients[0].name : (state.clients[0] ? state.clients[0].name : "王小明"));
       state.report.title = `${targetClient} ISP 成果報告`;
+      state.report.titleManual = false;
       state.report.period = "本月";
       state.reportItems = [];
       addTemplateItem("個人代幣趨勢圖", true);
@@ -6670,6 +6732,7 @@
     function buildSupervisorClassReport() {
       const className = state.selectedClass !== "全部班級" ? state.selectedClass : (state.classes[0] || "生訓1班");
       state.report.title = `${className} 班級成果報告`;
+      state.report.titleManual = false;
       state.report.period = "本季";
       state.reportItems = [];
       addTemplateItem("完成率折線圖", true);
@@ -6684,6 +6747,7 @@
     }
 
     function pushReportItem(payload) {
+      const reportScope = state.report || {};
       const item = {
         id: id(),
         report_id: state.report.id,
@@ -6693,9 +6757,9 @@
         sort_order: state.reportItems.length + 1,
         created_by: getCurrentActor(),
         created_at: new Date().toLocaleString("zh-TW"),
-        class_name: state.selectedClass,
-        client_name: state.selectedClient,
-        filter_text: payload.filterText || state.report.period || "本月",
+        class_name: reportScope.className || state.selectedClass,
+        client_name: reportScope.clientName || state.selectedClient,
+        filter_text: payload.filterText || buildReportFilterText(reportScope),
         chart_data: payload.chartData || null,
         ai_text: payload.aiText || "",
         text: payload.text || "",
@@ -6703,6 +6767,97 @@
       };
       state.reportItems.push(item);
       normalizeReportSortOrder();
+    }
+
+    function getReportTargetYear(reportScope) {
+      const y = Number(reportScope?.year);
+      if (Number.isInteger(y) && y >= 2000 && y <= 2100) return y;
+      return new Date().getFullYear();
+    }
+
+    function buildReportFilterText(reportScope) {
+      const scope = reportScope || state.report || {};
+      const period = String(scope.period || "本月");
+      if (period === "年度") {
+        return `${getReportTargetYear(scope)} 年度`;
+      }
+      if (period === "自訂") {
+        if (scope.startDate && scope.endDate) {
+          return `自訂（${scope.startDate} ~ ${scope.endDate}）`;
+        }
+        return `自訂未填（套用 ${getReportTargetYear(scope)} 年度）`;
+      }
+      return period;
+    }
+
+    function getReportScopedRecords() {
+      const reportScope = state.report || {};
+      const reportClass = reportScope.className || state.selectedClass;
+      const reportClient = reportScope.clientName || state.selectedClient;
+      const period = String(reportScope.period || "本月");
+      const targetYear = getReportTargetYear(reportScope);
+      const now = new Date();
+      const currentYear = now.getFullYear();
+      const currentMonth = now.getMonth() + 1;
+      const currentQuarter = Math.ceil(currentMonth / 3);
+      return state.records.filter(r => {
+        const classOk = reportClass === "全部班級" || r.className === reportClass;
+        const clientOk = reportClient === "全部個案" || r.clientName === reportClient;
+        if (!classOk || !clientOk) return false;
+        const day = String(r.date || "").slice(0, 10);
+        if (!day) return true;
+        const y = Number(day.slice(0, 4));
+        const m = Number(day.slice(5, 7));
+        if (period === "本月") {
+          return y === currentYear && m === currentMonth;
+        }
+        if (period === "本季") {
+          const q = Math.ceil(m / 3);
+          return y === currentYear && q === currentQuarter;
+        }
+        if (period === "年度") {
+          return y === targetYear;
+        }
+        if (period === "自訂") {
+          if (reportScope.startDate && reportScope.endDate) {
+            return day >= reportScope.startDate && day <= reportScope.endDate;
+          }
+          return y === targetYear;
+        }
+        return true;
+      });
+    }
+
+    function syncReportItemsDynamicContent() {
+      if (!Array.isArray(state.reportItems) || !state.reportItems.length) return;
+      const scopeClass = state.report.className || state.selectedClass;
+      const scopeClient = state.report.clientName || state.selectedClient;
+      const scopeFilterText = buildReportFilterText(state.report);
+      const summaryData = summarizeCurrentData();
+      const aiSummary = buildAutoAiSummary();
+      state.reportItems.forEach(item => {
+        item.class_name = scopeClass;
+        item.client_name = scopeClient;
+        item.filter_text = scopeFilterText;
+        if (item.item_type === "chart") {
+          item.chart_data = {
+            count: summaryData.count,
+            completion: summaryData.completion,
+            tokenNet: summaryData.tokenNet,
+            topPrompt: summaryData.topPrompt
+          };
+          item.ai_text = aiSummary;
+          if (item.item_ref_id === "manual") {
+            const canvasId = getBestChartCanvasId();
+            item.png = getCanvasPng(canvasId) || "";
+          } else {
+            item.png = "";
+          }
+        }
+        if (item.item_ref_id === "ai-summary" || item.title === "AI 成果摘要") {
+          item.text = aiSummary;
+        }
+      });
     }
 
     function getCurrentActor() {
@@ -6737,11 +6892,7 @@
     }
 
     function summarizeCurrentData() {
-      const recs = state.records.filter(r => {
-        const classOk = state.selectedClass === "全部班級" || r.className === state.selectedClass;
-        const clientOk = state.selectedClient === "全部個案" || r.clientName === state.selectedClient;
-        return classOk && clientOk;
-      });
+      const recs = getReportScopedRecords();
       return {
         count: recs.length,
         completion: calcCompletionRate(recs),
@@ -6751,9 +6902,30 @@
     }
 
     function buildAutoAiSummary() {
-      const targetClient = state.selectedClient === "全部個案" ? "王小明" : state.selectedClient;
+      const recs = getReportScopedRecords();
       const data = summarizeCurrentData();
-      return `${targetClient}－擦桌子工作分析：近三個月完成率由 72% 提升至 ${Math.max(80, data.completion)}%，口頭提示需求由 40% 降至 10%，目前已能大部分獨立完成，建議逐步降低代幣密度並增加自然情境練習。`;
+      const reportClass = state.report.className || state.selectedClass;
+      const reportClient = state.report.clientName || state.selectedClient;
+      const targetLabel = reportClient !== "全部個案"
+        ? reportClient
+        : (reportClass === "全部班級" ? "全機構" : `${reportClass}（全班）`);
+      const periodText = buildReportFilterText(state.report);
+      if (!recs.length) {
+        return `${targetLabel}－${periodText}目前沒有可分析的工作紀錄，請先新增工作項目執行資料。`;
+      }
+
+      const completedRecs = recs.filter(r => !!r.completed);
+      const completionRate = data.completion;
+      const taskCounter = {};
+      completedRecs.forEach(r => {
+        const taskName = String(r.taskName || "未命名工作").trim() || "未命名工作";
+        taskCounter[taskName] = (taskCounter[taskName] || 0) + 1;
+      });
+      const topTasks = Object.entries(taskCounter)
+        .sort((a, b) => b[1] - a[1])
+        .map(([taskName, count]) => `${taskName}（${count}次）`);
+      const completedTaskText = topTasks.length ? topTasks.join("、") : "尚無完成紀錄";
+      return `${targetLabel}－${periodText}共 ${recs.length} 筆工作紀錄，完成 ${completedRecs.length} 筆，完成率 ${completionRate}%。主要完成工作項目：${completedTaskText}。建議依據高完成項目逐步降低提示，並將未完成項目拆解為更小步驟持續練習。`;
     }
 
     function renderReportCollection() {
@@ -6833,6 +7005,33 @@
       });
     }
 
+    function renderReportChartFallback(item) {
+      if (!item || item.item_type !== "chart" || item.png) return "";
+      const completion = Math.max(0, Math.min(100, Number(item.chart_data?.completion || 0)));
+      const tokenNetRaw = Number(item.chart_data?.tokenNet || 0);
+      const tokenMagnitude = Math.min(100, Math.abs(tokenNetRaw));
+      const tokenColor = tokenNetRaw >= 0 ? "#0a7e8c" : "#b91c1c";
+      const prompt = String(item.chart_data?.topPrompt || "無");
+      return `
+        <div style="border:1px solid #dbe2ea;border-radius:10px;padding:12px;background:#f8fbff;">
+          <p class="mini" style="margin:0 0 8px 0;">圖表資料視覺化（自動備援）</p>
+          <div style="margin-bottom:10px;">
+            <div class="mini" style="margin-bottom:4px;">完成率 ${completion}%</div>
+            <div style="height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden;">
+              <div style="height:100%;width:${completion}%;background:linear-gradient(90deg,#16a34a,#0a7e8c);"></div>
+            </div>
+          </div>
+          <div style="margin-bottom:10px;">
+            <div class="mini" style="margin-bottom:4px;">代幣淨值 ${tokenNetRaw}</div>
+            <div style="height:10px;border-radius:999px;background:#e2e8f0;overflow:hidden;">
+              <div style="height:100%;width:${tokenMagnitude}%;background:${tokenColor};"></div>
+            </div>
+          </div>
+          <div class="mini">提示主型：${prompt}</div>
+        </div>
+      `;
+    }
+
     function renderReportPreviewPages() {
       const host = document.getElementById("reportPreviewPages");
       if (!host) return;
@@ -6856,6 +7055,7 @@
             ? `數據：完成率 ${item.chart_data.completion}%｜代幣淨值 ${item.chart_data.tokenNet}｜提示主型 ${item.chart_data.topPrompt}`
             : "";
           const image = item.png ? `<img src="${item.png}" alt="chart" style="max-width:100%;border:1px solid #e5e7eb;border-radius:8px;">` : "";
+          const fallbackChart = renderReportChartFallback(item);
           const ai = item.ai_text ? `<p><b>AI 分析：</b>${item.ai_text}</p>` : "";
           const text = item.text ? `<p>${item.text}</p>` : "";
           return `
@@ -6865,6 +7065,7 @@
               <p class="mini">加入時間：${item.created_at}｜加入者：${item.created_by}</p>
               <p>${chartDataText}</p>
               ${image}
+              ${fallbackChart}
               ${ai}
               ${text}
             </div>
