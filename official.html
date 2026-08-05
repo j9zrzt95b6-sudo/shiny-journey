@@ -3660,6 +3660,13 @@
       return state.clients.filter(c => c.className === className).map(c => c.name);
     }
 
+    function getEmotionAnalysisScopedClientNames() {
+      const permittedClients = new Set(getPermittedClientNames());
+      return getToolbarScopedClients({ respectSelectedClient: true })
+        .map(c => c.name)
+        .filter(name => permittedClients.has(name));
+    }
+
     function renderEmotion() {
       const host = document.getElementById("view-emotion");
       const permittedClients = getPermittedClientNames();
@@ -5700,50 +5707,6 @@
           <table><thead><tr><th>日期</th><th>工作</th><th>照片</th><th>影片</th><th>備註</th></tr></thead><tbody id="mediaRecordBody"></tbody></table>
         </div>
 
-        <div class="grid-2">
-          <div class="card">
-            <h3>情緒趨勢分析</h3>
-            <div class="grid-4">
-              <div class="field"><label>期間</label><select id="emotionPeriodSelect">${renderCompactPeriodOptions(state.emotionAnalysisPeriod)}</select></div>
-              ${renderPeriodDetailFields("emotion")}
-            </div>
-            <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
-              <div class="card"><div class="muted">愉快天數</div><div class="metric" id="emoHappyDays">0</div></div>
-              <div class="card"><div class="muted">焦慮天數</div><div class="metric" id="emoAnxietyDays">0</div></div>
-              <div class="card"><div class="muted">情緒事件次數</div><div class="metric" id="emoEventCount">0</div></div>
-              <div class="card"><div class="muted">改善趨勢</div><div class="metric" id="emoTrend">-</div></div>
-            </div>
-          </div>
-          <div class="card">
-            <h3>行為熱點分析</h3>
-            <table>
-              <thead><tr><th>項目</th><th>統計</th></tr></thead>
-              <tbody id="emotionHotspotBody"></tbody>
-            </table>
-            <p id="emotionAiSummary" class="mini">尚無情緒紀錄資料</p>
-            <p class="mini">教保員介入效果僅供流程改善，不作績效評比。</p>
-          </div>
-        </div>
-
-        <div class="card">
-          <h3>情緒表現分析（基於情緒與服務紀錄）</h3>
-          <div class="grid-4">
-            <div class="field"><label>期間</label><select id="satisfactionPeriodSelect">${renderCompactPeriodOptions(state.satisfactionAnalysisPeriod)}</select></div>
-            ${renderPeriodDetailFields("satisfaction")}
-          </div>
-          <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
-            <div class="card"><div class="muted">平均情緒表現評分</div><div class="metric" id="satisfactionAvgScore">-</div></div>
-            <div class="card"><div class="muted">高情緒表現紀錄數</div><div class="metric" id="satisfactionHighCount">0</div></div>
-            <div class="card"><div class="muted">正向情緒比例</div><div class="metric" id="satisfactionPositivePercent">0%</div></div>
-            <div class="card"><div class="muted">情緒表現趨勢</div><div class="metric" id="satisfactionTrend">-</div></div>
-          </div>
-          <h4>服務分類情緒表現</h4>
-          <table>
-            <thead><tr><th>服務分類</th><th>平均評分</th><th>紀錄數</th><th>情感分佈</th></tr></thead>
-            <tbody id="satisfactionCategoryBody"></tbody>
-          </table>
-          <p id="satisfactionAiSummary" class="mini">尚無服務紀錄資料</p>
-        </div>
       `;
 
       bindAnalysisEvents();
@@ -6141,7 +6104,7 @@
     }
 
     function renderEmotionStatusDashboard() {
-      const permitted = new Set(getPermittedClientNames());
+      const permitted = new Set(getEmotionAnalysisScopedClientNames());
       const range = getPeriodRange(new Date(), state.emotionAnalysisPeriod || "月", 0, "emotion");
       const weekRange = getPeriodRange(new Date(), "週", 0, "emotion");
       const emotionRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, range));
@@ -6672,7 +6635,7 @@
       const period = state.emotionAnalysisPeriod || "月";
       const currentRange = getPeriodRange(new Date(), period, 0, "emotion");
       const prevRange = getPeriodRange(new Date(), period, -1, "emotion");
-      const permitted = new Set(getPermittedClientNames());
+      const permitted = new Set(getEmotionAnalysisScopedClientNames());
 
       const currentEmotion = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
       const prevEvents = state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, prevRange));
@@ -6736,7 +6699,7 @@
       const period = state.satisfactionAnalysisPeriod || "月";
       const currentRange = getPeriodRange(new Date(), period, 0, "satisfaction");
       const prevRange = getPeriodRange(new Date(), period, -1, "satisfaction");
-      const permitted = new Set(getPermittedClientNames());
+      const permitted = new Set(getEmotionAnalysisScopedClientNames());
 
       const currentServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
       const prevServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, prevRange));
@@ -6836,7 +6799,7 @@
       const servicePeriod = state.satisfactionAnalysisPeriod || "月";
       const emotionRange = getPeriodRange(new Date(), emotionPeriod, 0, "emotion");
       const serviceRange = getPeriodRange(new Date(), servicePeriod, 0, "satisfaction");
-      const permitted = new Set(getPermittedClientNames());
+      const permitted = new Set(getEmotionAnalysisScopedClientNames());
       const emotionRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange));
       const serviceRows = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, serviceRange));
       const recordRows = state.records.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange));
@@ -7089,7 +7052,7 @@
     function renderEmotionTrendChart() {
       const period = state.emotionAnalysisPeriod || "月";
       const range = getPeriodRange(new Date(), period, 0, "emotion");
-      const permitted = new Set(getPermittedClientNames());
+      const permitted = new Set(getEmotionAnalysisScopedClientNames());
       const rows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, range));
       const buckets = getTrendBuckets(period);
       const labels = buckets.map(bucket => bucket.label);
