@@ -598,6 +598,9 @@
       <section class="view" id="view-media"></section>
       <section class="view" id="view-isp"></section>
       <section class="view" id="view-analysis"></section>
+      <section class="view" id="view-emotion-status"></section>
+      <section class="view" id="view-emotion-distribution"></section>
+      <section class="view" id="view-emotion-trend"></section>
       <section class="view" id="view-reports"></section>
       <section class="view" id="view-settings"></section>
       <section class="view" id="view-logs"></section>
@@ -718,7 +721,13 @@
       behaviorEvents: [],
       serviceRecords: [],
       emotionAnalysisPeriod: "月",
+      emotionAnalysisYear: new Date().getFullYear(),
+      emotionAnalysisStartDate: "",
+      emotionAnalysisEndDate: "",
       satisfactionAnalysisPeriod: "月",
+      satisfactionAnalysisYear: new Date().getFullYear(),
+      satisfactionAnalysisStartDate: "",
+      satisfactionAnalysisEndDate: "",
       lastAnalysisFilterSourceKey: "completion",
       mediaFilter: { clientName: "全部個案", mediaType: "全部" },
       serviceFilter: { category: "全部", keyword: "", clientName: "全部個案" },
@@ -782,6 +791,9 @@
       { key: "records", label: "📝 每日紀錄" },
       { key: "tokens", label: "🪙 代幣管理" },
       { key: "emotion", label: "😊 情緒行為" },
+      { key: "emotion-status", label: "😊 情緒狀況統計" },
+      { key: "emotion-distribution", label: "📊 情緒分布分析" },
+      { key: "emotion-trend", label: "📈 情緒趨勢分析" },
       { key: "media", label: "📷 照片/影片" },
       { key: "isp", label: "🎯 ISP 管理" },
       { key: "analysis", label: "📊 成效分析" },
@@ -2080,6 +2092,15 @@
           break;
         case "emotion":
           renderEmotion();
+          break;
+        case "emotion-status":
+          renderEmotionStatusView();
+          break;
+        case "emotion-distribution":
+          renderEmotionDistributionView();
+          break;
+        case "emotion-trend":
+          renderEmotionTrendView();
           break;
         case "media":
           renderMediaHub();
@@ -5727,7 +5748,8 @@
           <div class="card">
             <h3>情緒趨勢分析</h3>
             <div class="grid-4">
-              <div class="field"><label>期間</label><select id="emotionPeriodSelect"><option ${state.emotionAnalysisPeriod === "日" ? "selected" : ""}>日</option><option ${state.emotionAnalysisPeriod === "週" ? "selected" : ""}>週</option><option ${state.emotionAnalysisPeriod === "月" ? "selected" : ""}>月</option><option ${state.emotionAnalysisPeriod === "季" ? "selected" : ""}>季</option></select></div>
+              <div class="field"><label>期間</label><select id="emotionPeriodSelect">${renderCompactPeriodOptions(state.emotionAnalysisPeriod)}</select></div>
+              ${renderPeriodDetailFields("emotion")}
             </div>
             <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
               <div class="card"><div class="muted">愉快天數</div><div class="metric" id="emoHappyDays">0</div></div>
@@ -5742,22 +5764,24 @@
               <thead><tr><th>項目</th><th>統計</th></tr></thead>
               <tbody id="emotionHotspotBody"></tbody>
             </table>
+            <p id="emotionAiSummary" class="mini">尚無情緒紀錄資料</p>
             <p class="mini">教保員介入效果僅供流程改善，不作績效評比。</p>
           </div>
         </div>
 
         <div class="card">
-          <h3>滿意度成果分析（基於情感與服務紀錄）</h3>
+          <h3>情緒表現分析（基於情緒與服務紀錄）</h3>
           <div class="grid-4">
-            <div class="field"><label>期間</label><select id="satisfactionPeriodSelect"><option ${state.satisfactionAnalysisPeriod === "日" ? "selected" : ""}>日</option><option ${state.satisfactionAnalysisPeriod === "週" ? "selected" : ""}>週</option><option ${state.satisfactionAnalysisPeriod === "月" ? "selected" : ""}>月</option><option ${state.satisfactionAnalysisPeriod === "季" ? "selected" : ""}>季</option></select></div>
+            <div class="field"><label>期間</label><select id="satisfactionPeriodSelect">${renderCompactPeriodOptions(state.satisfactionAnalysisPeriod)}</select></div>
+            ${renderPeriodDetailFields("satisfaction")}
           </div>
           <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
-            <div class="card"><div class="muted">平均滿意度評分</div><div class="metric" id="satisfactionAvgScore">-</div></div>
-            <div class="card"><div class="muted">高滿意度紀錄數</div><div class="metric" id="satisfactionHighCount">0</div></div>
-            <div class="card"><div class="muted">情感正向比例</div><div class="metric" id="satisfactionPositivePercent">0%</div></div>
-            <div class="card"><div class="muted">滿意度進度</div><div class="metric" id="satisfactionTrend">-</div></div>
+            <div class="card"><div class="muted">平均情緒表現評分</div><div class="metric" id="satisfactionAvgScore">-</div></div>
+            <div class="card"><div class="muted">高情緒表現紀錄數</div><div class="metric" id="satisfactionHighCount">0</div></div>
+            <div class="card"><div class="muted">正向情緒比例</div><div class="metric" id="satisfactionPositivePercent">0%</div></div>
+            <div class="card"><div class="muted">情緒表現趨勢</div><div class="metric" id="satisfactionTrend">-</div></div>
           </div>
-          <h4>服務分類滿意度</h4>
+          <h4>服務分類情緒表現</h4>
           <table>
             <thead><tr><th>服務分類</th><th>平均評分</th><th>紀錄數</th><th>情感分佈</th></tr></thead>
             <tbody id="satisfactionCategoryBody"></tbody>
@@ -5785,6 +5809,7 @@
             taskName: "全部工作",
             startDate: "",
             endDate: "",
+            year: new Date().getFullYear(),
             granularity: "月"
           };
           created = true;
@@ -5792,6 +5817,259 @@
       });
       applyLevelDefaults({ force: created });
       syncAnalysisFiltersWithToolbar({ force: true });
+    }
+
+    function renderEmotionStatusView() {
+      const host = document.getElementById("view-emotion-status");
+      host.innerHTML = `
+        <div class="card">
+          <h3>😊 情緒狀況統計</h3>
+          <div class="grid-4">
+            <div class="field"><label>期間</label><select id="emotionPeriodSelect">${renderCompactPeriodOptions(state.emotionAnalysisPeriod)}</select></div>
+            ${renderPeriodDetailFields("emotion")}
+          </div>
+          <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
+            <div class="card"><div class="muted">愉快天數</div><div class="metric" id="emoHappyDays">0</div></div>
+            <div class="card"><div class="muted">焦慮天數</div><div class="metric" id="emoAnxietyDays">0</div></div>
+            <div class="card"><div class="muted">情緒事件次數</div><div class="metric" id="emoEventCount">0</div></div>
+            <div class="card"><div class="muted">改善趨勢</div><div class="metric" id="emoTrend">-</div></div>
+          </div>
+          <p id="emotionAiSummary" class="mini">尚無情緒紀錄資料</p>
+        </div>
+
+        <div class="card">
+          <h3>情緒表現分析（基於情緒與服務紀錄）</h3>
+          <div class="grid-4">
+            <div class="field"><label>期間</label><select id="satisfactionPeriodSelect">${renderCompactPeriodOptions(state.satisfactionAnalysisPeriod)}</select></div>
+            ${renderPeriodDetailFields("satisfaction")}
+          </div>
+          <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
+            <div class="card"><div class="muted">平均情緒表現評分</div><div class="metric" id="satisfactionAvgScore">-</div></div>
+            <div class="card"><div class="muted">高情緒表現紀錄數</div><div class="metric" id="satisfactionHighCount">0</div></div>
+            <div class="card"><div class="muted">正向情緒比例</div><div class="metric" id="satisfactionPositivePercent">0%</div></div>
+            <div class="card"><div class="muted">情緒表現趨勢</div><div class="metric" id="satisfactionTrend">-</div></div>
+          </div>
+          <h4>服務分類情緒表現</h4>
+          <table>
+            <thead><tr><th>服務分類</th><th>平均評分</th><th>紀錄數</th><th>情感分佈</th></tr></thead>
+            <tbody id="satisfactionCategoryBody"></tbody>
+          </table>
+          <p id="satisfactionAiSummary" class="mini">尚無服務紀錄資料</p>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>AI 建議策略</h3>
+            <div id="emotionStrategyAdvice" class="mini">尚無足夠資料產生建議策略</div>
+          </div>
+          <div class="card">
+            <h3>改善建議</h3>
+            <div id="emotionImprovementAdvice" class="mini">尚無足夠資料產生改善建議</div>
+          </div>
+        </div>
+      `;
+
+      bindEmotionStatusViewEvents();
+      renderEmotionAnalysisInsights();
+      renderSatisfactionAnalysis();
+    }
+
+    function renderEmotionDistributionView() {
+      const host = document.getElementById("view-emotion-distribution");
+      host.innerHTML = `
+        <div class="grid-2">
+          <div class="card">
+            <h3>📊 情緒分布分析</h3>
+            <div class="grid-4">
+              <div class="field"><label>期間</label><select id="emotionDistributionPeriodSelect">${renderCompactPeriodOptions(state.emotionAnalysisPeriod)}</select></div>
+              ${renderPeriodDetailFields("emotion")}
+            </div>
+            <table>
+              <thead><tr><th>情緒</th><th>次數</th><th>佔比</th><th>平均強度</th></tr></thead>
+              <tbody id="emotionDistributionBody"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>服務情緒表現分布</h3>
+            <div class="grid-4">
+              <div class="field"><label>期間</label><select id="serviceEmotionPeriodSelect">${renderCompactPeriodOptions(state.satisfactionAnalysisPeriod)}</select></div>
+              ${renderPeriodDetailFields("satisfaction")}
+            </div>
+            <table>
+              <thead><tr><th>情緒表現</th><th>次數</th><th>平均評分</th><th>服務分類</th></tr></thead>
+              <tbody id="serviceEmotionDistributionBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>AI 建議策略</h3>
+            <div id="emotionStrategyAdvice" class="mini">尚無足夠資料產生建議策略</div>
+          </div>
+          <div class="card">
+            <h3>改善建議</h3>
+            <div id="emotionImprovementAdvice" class="mini">尚無足夠資料產生改善建議</div>
+          </div>
+        </div>
+      `;
+
+      bindEmotionDistributionViewEvents();
+      renderEmotionDistributionAnalysis();
+    }
+
+    function renderEmotionTrendView() {
+      const host = document.getElementById("view-emotion-trend");
+      host.innerHTML = `
+        <div class="grid-2">
+          <div class="card">
+            <h3>📈 情緒趨勢分析</h3>
+            <div class="grid-4">
+              <div class="field"><label>期間</label><select id="emotionPeriodSelect">${renderCompactPeriodOptions(state.emotionAnalysisPeriod)}</select></div>
+              ${renderPeriodDetailFields("emotion")}
+            </div>
+            <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
+              <div class="card"><div class="muted">愉快天數</div><div class="metric" id="emoHappyDays">0</div></div>
+              <div class="card"><div class="muted">焦慮天數</div><div class="metric" id="emoAnxietyDays">0</div></div>
+              <div class="card"><div class="muted">情緒事件次數</div><div class="metric" id="emoEventCount">0</div></div>
+              <div class="card"><div class="muted">改善趨勢</div><div class="metric" id="emoTrend">-</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <h3>行為熱點分析</h3>
+            <table>
+              <thead><tr><th>項目</th><th>統計</th></tr></thead>
+              <tbody id="emotionHotspotBody"></tbody>
+            </table>
+            <p id="emotionAiSummary" class="mini">尚無情緒紀錄資料</p>
+            <p class="mini">教保員介入效果僅供流程改善，不作績效評比。</p>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>AI 建議策略</h3>
+            <div id="emotionStrategyAdvice" class="mini">尚無足夠資料產生建議策略</div>
+          </div>
+          <div class="card">
+            <h3>改善建議</h3>
+            <div id="emotionImprovementAdvice" class="mini">尚無足夠資料產生改善建議</div>
+          </div>
+        </div>
+      `;
+
+      bindEmotionTrendViewEvents();
+      renderEmotionAnalysisInsights();
+    }
+
+    function bindEmotionStatusViewEvents() {
+      bindPeriodDetailInputs("emotion", renderEmotionStatusView);
+      bindPeriodDetailInputs("satisfaction", renderEmotionStatusView);
+    }
+
+    function bindEmotionDistributionViewEvents() {
+      const emotionDistributionPeriodSelect = document.getElementById("emotionDistributionPeriodSelect");
+      if (emotionDistributionPeriodSelect) {
+        emotionDistributionPeriodSelect.addEventListener("change", e => {
+          state.emotionAnalysisPeriod = e.target.value;
+          renderEmotionDistributionView();
+        });
+      }
+      const emotionYearInput = document.getElementById("emotionPeriodYear");
+      if (emotionYearInput) {
+        emotionYearInput.addEventListener("change", e => {
+          state.emotionAnalysisYear = Number(e.target.value || new Date().getFullYear()) || new Date().getFullYear();
+          renderEmotionDistributionView();
+        });
+      }
+      const emotionStartInput = document.getElementById("emotionPeriodStartDate");
+      if (emotionStartInput) {
+        emotionStartInput.addEventListener("change", e => {
+          state.emotionAnalysisStartDate = e.target.value;
+          renderEmotionDistributionView();
+        });
+      }
+      const emotionEndInput = document.getElementById("emotionPeriodEndDate");
+      if (emotionEndInput) {
+        emotionEndInput.addEventListener("change", e => {
+          state.emotionAnalysisEndDate = e.target.value;
+          renderEmotionDistributionView();
+        });
+      }
+
+      const serviceEmotionPeriodSelect = document.getElementById("serviceEmotionPeriodSelect");
+      if (serviceEmotionPeriodSelect) {
+        serviceEmotionPeriodSelect.addEventListener("change", e => {
+          state.satisfactionAnalysisPeriod = e.target.value;
+          renderEmotionDistributionView();
+        });
+      }
+      const satisfactionYearInput = document.getElementById("satisfactionPeriodYear");
+      if (satisfactionYearInput) {
+        satisfactionYearInput.addEventListener("change", e => {
+          state.satisfactionAnalysisYear = Number(e.target.value || new Date().getFullYear()) || new Date().getFullYear();
+          renderEmotionDistributionView();
+        });
+      }
+      const satisfactionStartInput = document.getElementById("satisfactionPeriodStartDate");
+      if (satisfactionStartInput) {
+        satisfactionStartInput.addEventListener("change", e => {
+          state.satisfactionAnalysisStartDate = e.target.value;
+          renderEmotionDistributionView();
+        });
+      }
+      const satisfactionEndInput = document.getElementById("satisfactionPeriodEndDate");
+      if (satisfactionEndInput) {
+        satisfactionEndInput.addEventListener("change", e => {
+          state.satisfactionAnalysisEndDate = e.target.value;
+          renderEmotionDistributionView();
+        });
+      }
+    }
+
+    function bindEmotionTrendViewEvents() {
+      bindPeriodDetailInputs("emotion", renderEmotionTrendView);
+    }
+
+    function renderEmotionAdvicePanels({ emotionRows = [], eventRows = [], serviceRows = [] }) {
+      const strategyEl = document.getElementById("emotionStrategyAdvice");
+      const improvementEl = document.getElementById("emotionImprovementAdvice");
+      if (!strategyEl || !improvementEl) return;
+
+      const emotionCount = {};
+      const activityCount = {};
+      const locationCount = {};
+      emotionRows.forEach(row => {
+        const label = String(row.emotion || "未填");
+        emotionCount[label] = (emotionCount[label] || 0) + 1;
+      });
+      eventRows.forEach(row => {
+        const activity = row.activity || "未填活動";
+        const location = row.location || "未填地點";
+        activityCount[activity] = (activityCount[activity] || 0) + 1;
+        locationCount[location] = (locationCount[location] || 0) + 1;
+      });
+
+      const topEmotion = pickTopEntry(emotionCount);
+      const topActivity = pickTopEntry(activityCount);
+      const topLocation = pickTopEntry(locationCount);
+      const avgScore = serviceRows.length
+        ? (serviceRows.reduce((sum, row) => sum + Number(row.satisfactionScore || 0), 0) / serviceRows.length).toFixed(1)
+        : "-";
+      const lowScoreServices = serviceRows.filter(row => Number(row.satisfactionScore || 0) > 0 && Number(row.satisfactionScore || 0) <= 3);
+      const riskEmotion = /焦慮|難過|生氣/.test(topEmotion);
+
+      strategyEl.innerHTML = `
+        <p>1. 主要情緒型態為「${topEmotion}」，建議在「${topActivity}」前先提供視覺提示與流程預告。</p>
+        <p>2. 若事件熱點集中在「${topLocation}」，建議固定座位、降低刺激並預留冷靜流程。</p>
+        <p>3. ${avgScore === "-" ? "目前服務情緒表現評分資料不足，先以日常情緒紀錄與事件紀錄交叉觀察。" : `目前平均情緒表現評分為 ${avgScore}/5，可複製高分服務紀錄中的做法。`}</p>
+      `;
+
+      improvementEl.innerHTML = `
+        <p>1. ${riskEmotion ? `負向情緒偏多，優先檢查「${topActivity}」流程與等待時間是否過長。` : `正向情緒占優勢，建議把成功流程標準化並擴大到其他工作活動。`}</p>
+        <p>2. ${eventRows.length ? `本期共 ${eventRows.length} 筆情緒事件，建議每週追蹤高峰時段與恢復時間。` : "本期無明顯情緒事件，可維持目前支持策略並持續追蹤。"}</p>
+        <p>3. ${lowScoreServices.length ? `有 ${lowScoreServices.length} 筆服務評分偏低，建議優先檢討相關服務分類與提示層級。` : "服務評分未見明顯低分，可持續保留現有教保與增強安排。"}</p>
+      `;
     }
 
     function syncAnalysisFiltersWithToolbar({ force = false } = {}) {
@@ -5854,6 +6132,67 @@
       return ["全機構", "班級", "個人"];
     }
 
+    function renderCompactPeriodOptions(selected) {
+      return ["日", "週", "月", "季", "年", "自訂"].map(v => `<option ${selected === v ? "selected" : ""}>${v}</option>`).join("");
+    }
+
+    function renderPeriodDetailFields(kind) {
+      const isEmotion = kind === "emotion";
+      const period = isEmotion ? (state.emotionAnalysisPeriod || "月") : (state.satisfactionAnalysisPeriod || "月");
+      const year = isEmotion ? Number(state.emotionAnalysisYear || new Date().getFullYear()) : Number(state.satisfactionAnalysisYear || new Date().getFullYear());
+      const startDate = isEmotion ? (state.emotionAnalysisStartDate || "") : (state.satisfactionAnalysisStartDate || "");
+      const endDate = isEmotion ? (state.emotionAnalysisEndDate || "") : (state.satisfactionAnalysisEndDate || "");
+      const yearId = isEmotion ? "emotionPeriodYear" : "satisfactionPeriodYear";
+      const startId = isEmotion ? "emotionPeriodStartDate" : "satisfactionPeriodStartDate";
+      const endId = isEmotion ? "emotionPeriodEndDate" : "satisfactionPeriodEndDate";
+      return `
+        <div class="field ${period === "年" ? "" : "hidden"}" id="${yearId}Field"><label>年度</label><input id="${yearId}" type="number" min="2000" max="2100" value="${year}"></div>
+        <div class="field ${period === "自訂" ? "" : "hidden"}" id="${startId}Field"><label>自訂起日</label><input id="${startId}" type="date" value="${startDate}"></div>
+        <div class="field ${period === "自訂" ? "" : "hidden"}" id="${endId}Field"><label>自訂迄日</label><input id="${endId}" type="date" value="${endDate}"></div>
+      `;
+    }
+
+    function bindPeriodDetailInputs(kind, rerender) {
+      const isEmotion = kind === "emotion";
+      const selectId = isEmotion ? "emotionPeriodSelect" : "satisfactionPeriodSelect";
+      const yearId = isEmotion ? "emotionPeriodYear" : "satisfactionPeriodYear";
+      const startId = isEmotion ? "emotionPeriodStartDate" : "satisfactionPeriodStartDate";
+      const endId = isEmotion ? "emotionPeriodEndDate" : "satisfactionPeriodEndDate";
+      const select = document.getElementById(selectId);
+      const yearInput = document.getElementById(yearId);
+      const startInput = document.getElementById(startId);
+      const endInput = document.getElementById(endId);
+      if (select) {
+        select.addEventListener("change", e => {
+          if (isEmotion) state.emotionAnalysisPeriod = e.target.value;
+          else state.satisfactionAnalysisPeriod = e.target.value;
+          rerender();
+        });
+      }
+      if (yearInput) {
+        yearInput.addEventListener("change", e => {
+          const nextYear = Number(e.target.value || new Date().getFullYear()) || new Date().getFullYear();
+          if (isEmotion) state.emotionAnalysisYear = nextYear;
+          else state.satisfactionAnalysisYear = nextYear;
+          rerender();
+        });
+      }
+      if (startInput) {
+        startInput.addEventListener("change", e => {
+          if (isEmotion) state.emotionAnalysisStartDate = e.target.value;
+          else state.satisfactionAnalysisStartDate = e.target.value;
+          rerender();
+        });
+      }
+      if (endInput) {
+        endInput.addEventListener("change", e => {
+          if (isEmotion) state.emotionAnalysisEndDate = e.target.value;
+          else state.satisfactionAnalysisEndDate = e.target.value;
+          rerender();
+        });
+      }
+    }
+
     function renderChartFilter(key) {
       const f = state.chartFilters[key];
       const lockedClass = getLockedClassName();
@@ -5867,14 +6206,15 @@
       const workOpts = ["全部工作", ...state.tasks.map(t => t.name)].map(v => `<option ${f.taskName === v ? "selected" : ""}>${v}</option>`).join("");
       return `
         <div class="grid-4">
-          <div class="field"><label>日期</label><select data-ckey="${key}" data-cfield="period"><option ${f.period === "今日" ? "selected" : ""}>今日</option><option ${f.period === "本週" ? "selected" : ""}>本週</option><option ${f.period === "本月" ? "selected" : ""}>本月</option><option ${f.period === "自訂" ? "selected" : ""}>自訂</option></select></div>
+          <div class="field"><label>日期</label><select data-ckey="${key}" data-cfield="period"><option ${f.period === "今日" ? "selected" : ""}>今日</option><option ${f.period === "本週" ? "selected" : ""}>本週</option><option ${f.period === "本月" ? "selected" : ""}>本月</option><option ${f.period === "本季" ? "selected" : ""}>本季</option><option ${f.period === "年度" ? "selected" : ""}>年度</option><option ${f.period === "自訂" ? "selected" : ""}>自訂</option></select></div>
           <div class="field"><label>班級</label><select class="analysis-class-select" data-ckey="${key}" data-cfield="className" ${classLockAttrs}>${classOpts}</select>${classLockHint}</div>
           <div class="field"><label>個案</label><select data-ckey="${key}" data-cfield="clientName">${clientOpts}</select></div>
           <div class="field"><label>工作項目</label><select data-ckey="${key}" data-cfield="taskName">${workOpts}</select></div>
         </div>
-        <div class="grid-2 ${f.period === "自訂" ? "" : "hidden"}">
-          <div class="field"><label>起始日</label><input type="date" value="${f.startDate}" data-ckey="${key}" data-cfield="startDate"></div>
-          <div class="field"><label>結束日</label><input type="date" value="${f.endDate}" data-ckey="${key}" data-cfield="endDate"></div>
+        <div class="grid-3 ${f.period === "年度" || f.period === "自訂" ? "" : "hidden"}">
+          <div class="field ${f.period === "年度" ? "" : "hidden"}"><label>年度</label><input type="number" min="2000" max="2100" value="${Number(f.year || new Date().getFullYear())}" data-ckey="${key}" data-cfield="year"></div>
+          <div class="field ${f.period === "自訂" ? "" : "hidden"}"><label>起始日</label><input type="date" value="${f.startDate}" data-ckey="${key}" data-cfield="startDate"></div>
+          <div class="field ${f.period === "自訂" ? "" : "hidden"}"><label>結束日</label><input type="date" value="${f.endDate}" data-ckey="${key}" data-cfield="endDate"></div>
         </div>
       `;
     }
@@ -5948,21 +6288,8 @@
         });
       });
 
-      const emotionPeriodSelect = document.getElementById("emotionPeriodSelect");
-      if (emotionPeriodSelect) {
-        emotionPeriodSelect.addEventListener("change", e => {
-          state.emotionAnalysisPeriod = e.target.value;
-          renderAnalysis();
-        });
-      }
-
-      const satisfactionPeriodSelect = document.getElementById("satisfactionPeriodSelect");
-      if (satisfactionPeriodSelect) {
-        satisfactionPeriodSelect.addEventListener("change", e => {
-          state.satisfactionAnalysisPeriod = e.target.value;
-          renderAnalysis();
-        });
-      }
+      bindPeriodDetailInputs("emotion", renderAnalysis);
+      bindPeriodDetailInputs("satisfaction", renderAnalysis);
     }
 
     function applyLevelDefaults({ force = false } = {}) {
@@ -6035,6 +6362,11 @@
         if (f.period === "今日") return r.date === today();
         if (f.period === "本週") return daysDiff(now, d) <= 7;
         if (f.period === "本月") return daysDiff(now, d) <= 30;
+        if (f.period === "本季") return daysDiff(now, d) <= 90;
+        if (f.period === "年度") {
+          const year = Number(f.year || now.getFullYear()) || now.getFullYear();
+          return d.getFullYear() === year;
+        }
         if (f.period === "自訂") {
           if (!f.startDate || !f.endDate) return true;
           return r.date >= f.startDate && r.date <= f.endDate;
@@ -6098,8 +6430,19 @@
       renderSatisfactionAnalysis();
     }
 
-    function getPeriodRange(base, period, offset = 0) {
+    function getPeriodRange(base, period, offset = 0, kind = "emotion") {
       const now = new Date(base);
+      const periodState = kind === "emotion"
+        ? {
+            year: Number(state.emotionAnalysisYear || now.getFullYear()) || now.getFullYear(),
+            startDate: state.emotionAnalysisStartDate || "",
+            endDate: state.emotionAnalysisEndDate || ""
+          }
+        : {
+            year: Number(state.satisfactionAnalysisYear || now.getFullYear()) || now.getFullYear(),
+            startDate: state.satisfactionAnalysisStartDate || "",
+            endDate: state.satisfactionAnalysisEndDate || ""
+          };
       if (period === "日") {
         const d = new Date(now);
         d.setDate(d.getDate() + offset);
@@ -6125,6 +6468,29 @@
         const end = new Date(start);
         end.setMonth(end.getMonth() + 3);
         return { start, end };
+      }
+      if (period === "年") {
+        const year = (Number(periodState.year) || now.getFullYear()) + offset;
+        return {
+          start: new Date(year, 0, 1),
+          end: new Date(year + 1, 0, 1)
+        };
+      }
+      if (period === "自訂") {
+        const startStr = String(periodState.startDate || "").trim();
+        const endStr = String(periodState.endDate || "").trim();
+        if (startStr && endStr) {
+          const start = new Date(`${startStr}T00:00:00`);
+          const end = new Date(`${endStr}T00:00:00`);
+          end.setDate(end.getDate() + 1);
+          if (offset === 0) return { start, end };
+          const spanDays = Math.max(1, Math.round((end - start) / (1000 * 60 * 60 * 24)));
+          const shiftedStart = new Date(start);
+          shiftedStart.setDate(shiftedStart.getDate() + spanDays * offset);
+          const shiftedEnd = new Date(end);
+          shiftedEnd.setDate(shiftedEnd.getDate() + spanDays * offset);
+          return { start: shiftedStart, end: shiftedEnd };
+        }
       }
       const d = new Date(now);
       d.setMonth(d.getMonth() + offset);
@@ -6157,13 +6523,14 @@
 
     function renderEmotionAnalysisInsights() {
       const period = state.emotionAnalysisPeriod || "月";
-      const currentRange = getPeriodRange(new Date(), period, 0);
-      const prevRange = getPeriodRange(new Date(), period, -1);
+      const currentRange = getPeriodRange(new Date(), period, 0, "emotion");
+      const prevRange = getPeriodRange(new Date(), period, -1, "emotion");
       const permitted = new Set(getPermittedClientNames());
 
       const currentEmotion = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
       const prevEvents = state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, prevRange));
       const currentEvents = state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
+      const currentServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
 
       const happyDays = new Set(currentEmotion.filter(x => /愉快|平穩/.test(String(x.emotion || ""))).map(x => x.date)).size;
       const anxietyDays = new Set(currentEmotion.filter(x => /焦慮|難過|生氣/.test(String(x.emotion || ""))).map(x => x.date)).size;
@@ -6194,47 +6561,52 @@
       const trendEl = document.getElementById("emoTrend");
       const hotspotBody = document.getElementById("emotionHotspotBody");
       const aiSummary = document.getElementById("emotionAiSummary");
-      if (!happyEl || !anxietyEl || !eventEl || !trendEl || !hotspotBody || !aiSummary) return;
+      if (!happyEl || !anxietyEl || !eventEl || !trendEl) return;
 
       happyEl.textContent = String(happyDays);
       anxietyEl.textContent = String(anxietyDays);
       eventEl.textContent = String(eventCount);
       trendEl.textContent = trendText;
 
-      hotspotBody.innerHTML = `
-        <tr><td>高峰時段</td><td>${pickTopEntry(timeMap)}</td></tr>
-        <tr><td>高風險地點</td><td>${pickTopEntry(locationMap)}</td></tr>
-        <tr><td>高風險活動</td><td>${pickTopEntry(activityMap)}</td></tr>
-        <tr><td>介入效果較佳教保員</td><td>${bestStaff ? `${bestStaff[0]}（平均恢復 ${Math.round(bestStaff[1].recover / Math.max(1, bestStaff[1].total))} 分）` : "無資料"}</td></tr>
-      `;
+      if (hotspotBody) {
+        hotspotBody.innerHTML = `
+          <tr><td>高峰時段</td><td>${pickTopEntry(timeMap)}</td></tr>
+          <tr><td>高風險地點</td><td>${pickTopEntry(locationMap)}</td></tr>
+          <tr><td>高風險活動</td><td>${pickTopEntry(activityMap)}</td></tr>
+          <tr><td>介入效果較佳教保員</td><td>${bestStaff ? `${bestStaff[0]}（平均恢復 ${Math.round(bestStaff[1].recover / Math.max(1, bestStaff[1].total))} 分）` : "無資料"}</td></tr>
+        `;
+      }
 
       const improvement = trendDelta < 0 ? `事件由 ${prevEvents.length} 次下降至 ${eventCount} 次` : `事件為 ${eventCount} 次（較前期${trendDelta > 0 ? "增加" : "持平"}）`;
       const topActivity = pickTopEntry(activityMap);
-      aiSummary.textContent = `${period}度情緒事件分析：${improvement}，主要熱點為「${topActivity}」。配合代幣制度與介入策略後，建議持續使用固定流程、視覺提示與正向增強。`;
+      if (aiSummary) {
+        aiSummary.textContent = `${period}度情緒事件分析：${improvement}，主要熱點為「${topActivity}」。配合代幣制度與介入策略後，建議持續使用固定流程、視覺提示與正向增強。`;
+      }
+      renderEmotionAdvicePanels({ emotionRows: currentEmotion, eventRows: currentEvents, serviceRows: currentServices });
     }
 
     function renderSatisfactionAnalysis() {
       const period = state.satisfactionAnalysisPeriod || "月";
-      const currentRange = getPeriodRange(new Date(), period, 0);
-      const prevRange = getPeriodRange(new Date(), period, -1);
+      const currentRange = getPeriodRange(new Date(), period, 0, "satisfaction");
+      const prevRange = getPeriodRange(new Date(), period, -1, "satisfaction");
       const permitted = new Set(getPermittedClientNames());
 
       const currentServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
       const prevServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, prevRange));
       const currentEmotion = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
 
-      // 計算平均滿意度評分
+      // 計算平均情緒表現評分
       const scores = currentServices.map(s => Number(s.satisfactionScore || 0)).filter(s => s > 0);
       const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "-";
       
-      // 計算高滿意度紀錄數（4-5分）
+      // 計算高情緒表現紀錄數（4-5分）
       const highSatisfactionCount = scores.filter(s => s >= 4).length;
       
-      // 計算情感正向比例
+      // 計算正向情緒比例
       const positiveEmotions = currentEmotion.filter(x => /愉快|平穩/.test(String(x.emotion || "")));
       const positivePercent = currentEmotion.length > 0 ? Math.round((positiveEmotions.length / currentEmotion.length) * 100) : 0;
       
-      // 計算滿意度趨勢
+      // 計算情緒表現趨勢
       const prevScores = prevServices.map(s => Number(s.satisfactionScore || 0)).filter(s => s > 0);
       const prevAvgScore = prevScores.length > 0 ? (prevScores.reduce((a, b) => a + b, 0) / prevScores.length) : 0;
       const scoreTrend = avgScore === "-" ? "-" : (Number(avgScore) > prevAvgScore ? `📈 上升 (${(Number(avgScore) - prevAvgScore).toFixed(1)})` : `📉 下降 (${(Number(avgScore) - prevAvgScore).toFixed(1)})`);
@@ -6277,12 +6649,54 @@
       if (aiSummaryEl) {
         if (currentServices.length > 0) {
           const topCategory = Object.entries(categoryMap).sort((a, b) => b[1].count - a[1].count)[0];
-          const summary = `本${period}共記錄 ${currentServices.length} 筆服務紀錄，平均滿意度評分 ${avgScore}/${5}。高滿意度紀錄 ${highSatisfactionCount} 筆，情感正向比例 ${positivePercent}%。主要服務分類為「${topCategory[0]}」。建議持續關注評分偏低項目，強化相關教保策略。`;
+          const summary = `本${period}共記錄 ${currentServices.length} 筆服務紀錄，平均情緒表現評分 ${avgScore}/${5}。高情緒表現紀錄 ${highSatisfactionCount} 筆，正向情緒比例 ${positivePercent}%。主要服務分類為「${topCategory[0]}」。建議持續關注評分偏低項目，強化相關教保策略。`;
           aiSummaryEl.textContent = summary;
         } else {
           aiSummaryEl.textContent = "尚無本期服務紀錄";
         }
       }
+    }
+
+    function renderEmotionDistributionAnalysis() {
+      const emotionPeriod = state.emotionAnalysisPeriod || "月";
+      const servicePeriod = state.satisfactionAnalysisPeriod || "月";
+      const emotionRange = getPeriodRange(new Date(), emotionPeriod, 0, "emotion");
+      const serviceRange = getPeriodRange(new Date(), servicePeriod, 0, "satisfaction");
+      const permitted = new Set(getPermittedClientNames());
+      const emotionRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange));
+      const serviceRows = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, serviceRange));
+      const emotionBody = document.getElementById("emotionDistributionBody");
+      const serviceBody = document.getElementById("serviceEmotionDistributionBody");
+      if (!emotionBody || !serviceBody) return;
+
+      const emotionSummary = emotionOptions.map(label => {
+        const rows = emotionRows.filter(x => String(x.emotion || "") === label);
+        const avgIntensity = rows.length ? (rows.reduce((sum, row) => sum + Number(row.intensity || 0), 0) / rows.length).toFixed(1) : "-";
+        const ratio = emotionRows.length ? `${Math.round((rows.length / emotionRows.length) * 100)}%` : "0%";
+        return `<tr><td>${label}</td><td>${rows.length}</td><td>${ratio}</td><td>${avgIntensity}</td></tr>`;
+      }).join("");
+      emotionBody.innerHTML = emotionSummary || "<tr><td colspan='4'>尚無情緒紀錄</td></tr>";
+
+      const serviceMap = {};
+      serviceRows.forEach(row => {
+        const key = row.emotionSatisfaction || "未填";
+        if (!serviceMap[key]) serviceMap[key] = { count: 0, scoreSum: 0, categories: new Set() };
+        serviceMap[key].count += 1;
+        serviceMap[key].scoreSum += Number(row.satisfactionScore || 0);
+        if (row.category) serviceMap[key].categories.add(row.category);
+      });
+
+      serviceBody.innerHTML = Object.entries(serviceMap).map(([label, data]) => {
+        const avg = data.count ? (data.scoreSum / data.count).toFixed(1) : "-";
+        const cats = data.categories.size ? Array.from(data.categories).join("、") : "未分類";
+        return `<tr><td>${label}</td><td>${data.count}</td><td>${avg}</td><td>${cats}</td></tr>`;
+      }).join("") || "<tr><td colspan='4'>尚無服務情緒表現紀錄</td></tr>";
+
+      renderEmotionAdvicePanels({
+        emotionRows,
+        eventRows: state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange)),
+        serviceRows
+      });
     }
 
     function upsertChart(chartKey, canvasId, type, data, options = {}) {
