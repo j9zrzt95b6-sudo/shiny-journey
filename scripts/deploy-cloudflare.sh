@@ -6,10 +6,22 @@ CF_DIR="$ROOT_DIR/cloudflare"
 ENV_FILE="$ROOT_DIR/.env.cloudflare"
 ENV_LOCAL_FILE="$ROOT_DIR/.env.cloudflare.local"
 CONFIG_FILE="$CF_DIR/wrangler.toml"
+CONFIG_TEMPLATE="$CF_DIR/wrangler.toml.example"
+ENV_TEMPLATE="$ROOT_DIR/.env.cloudflare.example"
+WORKDIR="$CF_DIR"
 DRY_RUN=false
 VERBOSE=false
 VERIFY_PUBLIC=false
 API_URL="https://smart-care-sync-api.j9zrzt95b6.workers.dev/state"
+
+resolve_path_from_root() {
+  local path="$1"
+  if [[ "$path" = /* ]]; then
+    echo "$path"
+  else
+    echo "$ROOT_DIR/$path"
+  fi
+}
 
 info() {
   echo "[INFO] $*"
@@ -25,16 +37,44 @@ vlog() {
   fi
 }
 
+prefer_existing_secret() {
+  local var_name="$1"
+  local original_value="$2"
+  local current_value="${!var_name:-}"
+
+  # Keep the real value already set in the shell when env files contain placeholders.
+  if [[ -n "$original_value" ]] && ! looks_like_placeholder "$original_value"; then
+    if [[ -z "$current_value" ]] || looks_like_placeholder "$current_value"; then
+      printf -v "$var_name" '%s' "$original_value"
+      export "$var_name"
+    fi
+  fi
+}
+
+looks_like_placeholder() {
+  local value="${1:-}"
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+  if [[ "$value" =~ (your_|replace|changeme|todo) ]]; then
+    return 0
+  fi
+  return 1
+}
+
 usage() {
   cat <<'EOF'
-Usage: scripts/deploy-cloudflare.sh [--dry-run] [--verbose] [--verify-public] [--api-url <url>] [--help]
+Usage: scripts/deploy-cloudflare.sh [options]
 
 Options:
-  --dry-run   Only run preflight checks; do not deploy.
-  --verbose   Print extra diagnostics during preflight/deploy.
-  --verify-public  Run public API healthcheck after deploy (requires scripts/cloudflare-healthcheck.sh).
-  --api-url   API base URL for post-deploy public verification.
-  --help      Show this help message.
+  --dry-run         Only run preflight checks; do not deploy.
+  --verbose         Print extra diagnostics during preflight/deploy.
+  --verify-public   Run public API healthcheck after deploy (requires scripts/cloudflare-healthcheck.sh).
+  --api-url <url>   API base URL for post-deploy public verification.
+  --config <path>   Use a custom Wrangler config path (relative paths resolve from the repo root).
+  --env-file <path> Load Cloudflare credentials from a custom env file.
+  --env-file-local <path> Load Cloudflare credentials from a second custom env file.
+  --help            Show this help message.
 EOF
 }
 
@@ -62,6 +102,33 @@ while [[ $# -gt 0 ]]; do
       API_URL="$2"
       shift 2
       ;;
+    --config)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --config"
+        usage
+        exit 1
+      fi
+      CONFIG_FILE="$2"
+      shift 2
+      ;;
+    --env-file)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --env-file"
+        usage
+        exit 1
+      fi
+      ENV_FILE="$2"
+      shift 2
+      ;;
+    --env-file-local)
+      if [[ $# -lt 2 ]]; then
+        echo "Missing value for --env-file-local"
+        usage
+        exit 1
+      fi
+      ENV_LOCAL_FILE="$2"
+      shift 2
+      ;;
     --help|-h)
       usage
       exit 0
@@ -73,6 +140,11 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+CONFIG_FILE="$(resolve_path_from_root "$CONFIG_FILE")"
+ENV_FILE="$(resolve_path_from_root "$ENV_FILE")"
+ENV_LOCAL_FILE="$(resolve_path_from_root "$ENV_LOCAL_FILE")"
+WORKDIR="$(dirname "$CONFIG_FILE")"
 
 if ! command -v npx >/dev/null 2>&1; then
   echo "npx not found. Please install Node.js first."
@@ -87,13 +159,20 @@ fi
 vlog "node detected: $(command -v node)"
 
 if [[ ! -f "$CONFIG_FILE" ]]; then
-  echo "Missing $CONFIG_FILE"
-  echo "Please copy wrangler.toml.example -> wrangler.toml and fill D1 database_id (and optional KV id)"
-  exit 1
+  if [[ -f "$CONFIG_TEMPLATE" ]]; then
+    info "Creating $CONFIG_FILE from $CONFIG_TEMPLATE"
+    cp "$CONFIG_TEMPLATE" "$CONFIG_FILE"
+  else
+    echo "Missing $CONFIG_FILE"
+    echo "Please copy wrangler.toml.example -> wrangler.toml and fill D1 database_id (and optional KV id)"
+    exit 1
+  fi
 fi
 vlog "config file found: $CONFIG_FILE"
+vlog "env file: $ENV_FILE"
+vlog "local env file: $ENV_LOCAL_FILE"
 
-cd "$CF_DIR"
+cd "$WORKDIR"
 vlog "working directory: $PWD"
 
 if ! grep -Eq '^database_id\s*=\s*"[0-9a-fA-F-]{36}"' "$CONFIG_FILE"; then
@@ -111,6 +190,9 @@ vlog "wrangler.toml preflight checks passed"
 
 # Auto-load Cloudflare credentials from local env files to avoid retyping
 # in new terminal sessions. Values already present in current env take precedence.
+ORIGINAL_CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
+ORIGINAL_CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+
 if [[ -f "$ENV_FILE" ]]; then
   vlog "loading env file: $ENV_FILE"
   set -a
@@ -126,13 +208,41 @@ if [[ -f "$ENV_LOCAL_FILE" ]]; then
   set +a
 fi
 
+prefer_existing_secret "CLOUDFLARE_API_TOKEN" "$ORIGINAL_CLOUDFLARE_API_TOKEN"
+prefer_existing_secret "CLOUDFLARE_ACCOUNT_ID" "$ORIGINAL_CLOUDFLARE_ACCOUNT_ID"
+
 if [[ ! -f "$ENV_FILE" && ! -f "$ENV_LOCAL_FILE" ]]; then
-  warn "No .env.cloudflare(.local) file found. Falling back to current shell environment."
+  if [[ -f "$ENV_TEMPLATE" ]]; then
+    warn "No .env.cloudflare(.local) file found. Creating $ENV_FILE from $ENV_TEMPLATE"
+    cp "$ENV_TEMPLATE" "$ENV_FILE"
+  else
+    warn "No .env.cloudflare(.local) file found. Falling back to current shell environment."
+  fi
 fi
 
-if [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
-  echo "Missing CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID."
-  echo "Export both variables, or set them in .env.cloudflare(.local), then re-run this script."
+TOKEN_VALUE="${CLOUDFLARE_API_TOKEN:-}"
+ACCOUNT_ID_VALUE="${CLOUDFLARE_ACCOUNT_ID:-}"
+
+if [[ -n "$TOKEN_VALUE" ]] && printf '%s' "$TOKEN_VALUE" | LC_ALL=C grep -q '[^ -~]'; then
+  echo "Invalid CLOUDFLARE_API_TOKEN: contains non-ASCII characters."
+  echo "Please paste a real token value (usually starts with 'cf')."
+  exit 1
+fi
+
+if [[ -n "$TOKEN_VALUE" ]] && [[ ! "$TOKEN_VALUE" =~ ^cf ]]; then
+  warn "CLOUDFLARE_API_TOKEN does not start with 'cf'. Please confirm token value."
+fi
+
+if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "$TOKEN_VALUE" || looks_like_placeholder "$ACCOUNT_ID_VALUE"; then
+  if [[ "$DRY_RUN" == "true" ]]; then
+    warn "Cloudflare credentials are still placeholders or not set."
+    warn "Edit $ENV_FILE and fill in real values before a real deploy."
+    info "Dry run completed. No deployment was performed."
+    exit 0
+  fi
+
+  echo "Missing or placeholder CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID."
+  echo "Export real values, or set them in .env.cloudflare(.local), then re-run this script."
   echo "Example:"
   echo "  export CLOUDFLARE_API_TOKEN='your_token'"
   echo "  export CLOUDFLARE_ACCOUNT_ID='your_account_id'"
