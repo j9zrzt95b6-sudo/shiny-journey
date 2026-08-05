@@ -5828,13 +5828,31 @@
             <div class="field"><label>期間</label><select id="emotionPeriodSelect">${renderCompactPeriodOptions(state.emotionAnalysisPeriod)}</select></div>
             ${renderPeriodDetailFields("emotion")}
           </div>
-          <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
-            <div class="card"><div class="muted">愉快天數</div><div class="metric" id="emoHappyDays">0</div></div>
-            <div class="card"><div class="muted">焦慮天數</div><div class="metric" id="emoAnxietyDays">0</div></div>
-            <div class="card"><div class="muted">情緒事件次數</div><div class="metric" id="emoEventCount">0</div></div>
-            <div class="card"><div class="muted">改善趨勢</div><div class="metric" id="emoTrend">-</div></div>
+          <div class="grid-2">
+            <div class="card">
+              <h4>情緒狀況</h4>
+              <div id="emotionStatusRatioList"></div>
+            </div>
+            <div class="card">
+              <h4>本週統計摘要</h4>
+              <div class="cards" style="grid-template-columns: repeat(2, minmax(0,1fr));">
+                <div class="card"><div class="muted">本週紀錄</div><div class="metric" id="emotionWeekRecordCount">0</div></div>
+                <div class="card"><div class="muted">最常出現情緒</div><div class="metric" id="emotionWeekTop">-</div></div>
+                <div class="card"><div class="muted">情緒改善率</div><div class="metric" id="emotionImprovementRate">0%</div></div>
+                <div class="card"><div class="muted">連續穩定天數</div><div class="metric" id="emotionStableStreak">0 天</div></div>
+              </div>
+              <p id="emotionAiSummary" class="mini">尚無情緒紀錄資料</p>
+            </div>
           </div>
-          <p id="emotionAiSummary" class="mini">尚無情緒紀錄資料</p>
+        </div>
+
+        <div class="card">
+          <h3>班級情緒比較</h3>
+          <table>
+            <thead><tr id="emotionClassCompareHead"><th>情緒</th></tr></thead>
+            <tbody id="emotionClassCompareBody"></tbody>
+          </table>
+          <p id="emotionClassCompareNote" class="mini">透過班級情緒比較，可快速掌握各班情緒狀況與支持需求。</p>
         </div>
 
         <div class="card">
@@ -5870,7 +5888,7 @@
       `;
 
       bindEmotionStatusViewEvents();
-      renderEmotionAnalysisInsights();
+      renderEmotionStatusDashboard();
       renderSatisfactionAnalysis();
     }
 
@@ -5888,6 +5906,7 @@
               <thead><tr><th>情緒</th><th>次數</th><th>佔比</th><th>平均強度</th></tr></thead>
               <tbody id="emotionDistributionBody"></tbody>
             </table>
+            <canvas id="emotionDistributionPieChart" height="150"></canvas>
           </div>
           <div class="card">
             <h3>服務情緒表現分布</h3>
@@ -5900,6 +5919,67 @@
               <tbody id="serviceEmotionDistributionBody"></tbody>
             </table>
           </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>時段情緒分析</h3>
+            <table>
+              <thead><tr><th>時段</th><th>最多情緒</th><th>說明</th></tr></thead>
+              <tbody id="emotionTimeSlotBody"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>星期分析</h3>
+            <table>
+              <thead><tr><th>星期</th><th>情緒最佳</th><th>觀察</th></tr></thead>
+              <tbody id="emotionWeekdayBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>與代幣整合</h3>
+            <table>
+              <thead><tr><th>情緒</th><th>平均代幣淨值</th><th>樣本數</th></tr></thead>
+              <tbody id="emotionTokenBody"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>情緒 × 行為分析</h3>
+            <table>
+              <thead><tr><th>情緒</th><th>最常行為</th><th>常見組合</th></tr></thead>
+              <tbody id="emotionBehaviorBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="card">
+            <h3>情緒 × 活動分析</h3>
+            <table>
+              <thead><tr><th>活動</th><th>最佳情緒</th><th>說明</th></tr></thead>
+              <tbody id="emotionActivityBody"></tbody>
+            </table>
+          </div>
+          <div class="card">
+            <h3>情緒 × 教保員分析</h3>
+            <table>
+              <thead><tr><th>教保員</th><th>穩定率</th><th>說明</th></tr></thead>
+              <tbody id="emotionTeacherBody"></tbody>
+            </table>
+            <p class="mini">僅供內部督導與經驗分享，不作單一績效評比。</p>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3>ISP 成效分析</h3>
+          <table>
+            <thead><tr><th>ISP 目標</th><th>介入前</th><th>介入後</th><th>摘要</th></tr></thead>
+            <tbody id="emotionIspImpactBody"></tbody>
+          </table>
+          <p id="emotionIspImpactSummary" class="mini">尚無足夠 ISP 與情緒資料進行比較。</p>
         </div>
 
         <div class="grid-2">
@@ -5934,6 +6014,8 @@
               <div class="card"><div class="muted">情緒事件次數</div><div class="metric" id="emoEventCount">0</div></div>
               <div class="card"><div class="muted">改善趨勢</div><div class="metric" id="emoTrend">-</div></div>
             </div>
+            <canvas id="emotionPositiveTrendChart" height="120"></canvas>
+            <p id="emotionTrendConclusion" class="mini">尚無足夠資料判讀情緒是否改善。</p>
           </div>
           <div class="card">
             <h3>行為熱點分析</h3>
@@ -5960,6 +6042,7 @@
 
       bindEmotionTrendViewEvents();
       renderEmotionAnalysisInsights();
+      renderEmotionTrendChart();
     }
 
     function bindEmotionStatusViewEvents() {
@@ -6070,6 +6153,116 @@
         <p>2. ${eventRows.length ? `本期共 ${eventRows.length} 筆情緒事件，建議每週追蹤高峰時段與恢復時間。` : "本期無明顯情緒事件，可維持目前支持策略並持續追蹤。"}</p>
         <p>3. ${lowScoreServices.length ? `有 ${lowScoreServices.length} 筆服務評分偏低，建議優先檢討相關服務分類與提示層級。` : "服務評分未見明顯低分，可持續保留現有教保與增強安排。"}</p>
       `;
+    }
+
+    function formatPercentBar(label, count, total) {
+      const percent = total > 0 ? Math.round((count / total) * 100) : 0;
+      return `
+        <div style="margin:8px 0;">
+          <div style="display:flex; justify-content:space-between; gap:12px;"><span>${label}</span><strong>${percent}%</strong></div>
+          <div style="height:10px; background:#e5eef2; border-radius:999px; overflow:hidden; margin-top:4px;">
+            <div style="height:100%; width:${percent}%; background:linear-gradient(90deg, #f59e0b, #0ea5e9);"></div>
+          </div>
+        </div>
+      `;
+    }
+
+    function calculateStableStreak(rows) {
+      const byDay = {};
+      rows.forEach(row => {
+        if (!row.date) return;
+        if (!byDay[row.date]) byDay[row.date] = [];
+        byDay[row.date].push(row);
+      });
+      const days = Object.keys(byDay).sort().reverse();
+      let streak = 0;
+      for (const day of days) {
+        const allStable = byDay[day].every(row => isPositiveEmotionLabel(row.emotion));
+        if (!allStable) break;
+        streak += 1;
+      }
+      return streak;
+    }
+
+    function renderEmotionStatusDashboard() {
+      const permitted = new Set(getPermittedClientNames());
+      const range = getPeriodRange(new Date(), state.emotionAnalysisPeriod || "月", 0, "emotion");
+      const weekRange = getPeriodRange(new Date(), "週", 0, "emotion");
+      const emotionRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, range));
+      const weekEmotionRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, weekRange));
+      const classRecords = state.records.filter(x => permitted.has(x.clientName) && inRange(x.date, range) && x.dailyEmotion);
+      const ratioListEl = document.getElementById("emotionStatusRatioList");
+      const weekRecordEl = document.getElementById("emotionWeekRecordCount");
+      const weekTopEl = document.getElementById("emotionWeekTop");
+      const improvementEl = document.getElementById("emotionImprovementRate");
+      const streakEl = document.getElementById("emotionStableStreak");
+      const compareHeadEl = document.getElementById("emotionClassCompareHead");
+      const compareBodyEl = document.getElementById("emotionClassCompareBody");
+      const compareNoteEl = document.getElementById("emotionClassCompareNote");
+      const summaryEl = document.getElementById("emotionAiSummary");
+      if (!ratioListEl || !weekRecordEl || !weekTopEl || !improvementEl || !streakEl || !compareHeadEl || !compareBodyEl || !compareNoteEl) return;
+
+      const emotionCount = {};
+      emotionOptions.forEach(label => { emotionCount[label] = 0; });
+      emotionRows.forEach(row => {
+        const label = String(row.emotion || "");
+        if (emotionCount[label] === undefined) emotionCount[label] = 0;
+        emotionCount[label] += 1;
+      });
+      ratioListEl.innerHTML = Object.entries(emotionCount)
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .map(([label, count]) => formatPercentBar(label, count, emotionRows.length))
+        .join("") || "<p class='mini'>尚無情緒比例資料</p>";
+
+      const weekEmotionCount = {};
+      weekEmotionRows.forEach(row => {
+        const label = String(row.emotion || "未填");
+        weekEmotionCount[label] = (weekEmotionCount[label] || 0) + 1;
+      });
+      const weekTop = pickTopEntry(weekEmotionCount);
+      const prevWeekRange = getPeriodRange(new Date(), "週", -1, "emotion");
+      const prevWeekRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, prevWeekRange));
+      const currentPositive = weekEmotionRows.length ? Math.round((weekEmotionRows.filter(row => isPositiveEmotionLabel(row.emotion)).length / weekEmotionRows.length) * 100) : 0;
+      const prevPositive = prevWeekRows.length ? Math.round((prevWeekRows.filter(row => isPositiveEmotionLabel(row.emotion)).length / prevWeekRows.length) * 100) : 0;
+      const improveDelta = currentPositive - prevPositive;
+      const stableStreak = calculateStableStreak(weekEmotionRows.length ? weekEmotionRows : emotionRows);
+
+      weekRecordEl.textContent = `${weekEmotionRows.length} 筆`;
+      weekTopEl.textContent = weekTop;
+      improvementEl.textContent = `${improveDelta >= 0 ? "+" : ""}${improveDelta}%`;
+      streakEl.textContent = `${stableStreak} 天`;
+      if (summaryEl) {
+        summaryEl.textContent = `本週以「${weekTop}」最常出現，正向情緒比例 ${currentPositive}%，較前週${improveDelta >= 0 ? "提升" : "下降"}${Math.abs(improveDelta)}%。`;
+      }
+
+      const classNames = [...new Set(classRecords.map(row => row.className).filter(Boolean))].sort();
+      compareHeadEl.innerHTML = `<th>情緒</th>${classNames.map(name => `<th>${name}</th>`).join("")}`;
+      const compareMap = {};
+      classRecords.forEach(row => {
+        const emotion = row.dailyEmotion || "未填";
+        compareMap[emotion] = compareMap[emotion] || {};
+        compareMap[emotion][row.className] = (compareMap[emotion][row.className] || 0) + 1;
+      });
+      compareBodyEl.innerHTML = Object.keys(compareMap).sort().map(emotion => {
+        const cols = classNames.map(name => `<td>${compareMap[emotion][name] || 0}</td>`).join("");
+        return `<tr><td>${emotion}</td>${cols}</tr>`;
+      }).join("") || "<tr><td colspan='4'>尚無班級情緒比較資料</td></tr>";
+
+      const classRisk = classNames.map(name => {
+        const negative = classRecords.filter(row => row.className === name && /生氣|焦慮|難過/.test(String(row.dailyEmotion || ""))).length;
+        const positive = classRecords.filter(row => row.className === name && /愉快|平穩/.test(String(row.dailyEmotion || ""))).length;
+        return { name, negative, positive };
+      }).sort((a, b) => b.negative - a.negative)[0];
+      compareNoteEl.textContent = classRisk
+        ? `透過班級情緒比較，可快速掌握各班情緒狀況與支持需求。目前 ${classRisk.name} 的負向情緒次數相對較高，建議優先檢視該班課程安排、行為支持策略與人力配置；正向情緒較高的班級可作為 ISP 介入與班級經營經驗分享參考。`
+        : "透過班級情緒比較，可快速掌握各班情緒狀況與支持需求。";
+
+      renderEmotionAdvicePanels({
+        emotionRows,
+        eventRows: state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, range)),
+        serviceRows: state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, range))
+      });
     }
 
     function syncAnalysisFiltersWithToolbar({ force = false } = {}) {
@@ -6657,6 +6850,33 @@
       }
     }
 
+    function getTimeSlotByHour(hour) {
+      if (hour < 12) return "上午";
+      if (hour < 18) return "下午";
+      return "晚上";
+    }
+
+    function getWeekdayLabel(dateStr) {
+      const weekdays = ["日", "一", "二", "三", "四", "五", "六"];
+      const d = new Date(`${dateStr}T00:00:00`);
+      return `星期${weekdays[d.getDay()]}`;
+    }
+
+    function getEmotionLabelForDate(clientName, date) {
+      const emotion = state.emotionRecords.find(row => row.clientName === clientName && row.date === date);
+      if (emotion && emotion.emotion) return emotion.emotion;
+      const record = state.records.find(row => row.clientName === clientName && row.date === date && row.dailyEmotion);
+      return record ? record.dailyEmotion : "未填";
+    }
+
+    function summarizeTopN(mapObj, topN = 3) {
+      return Object.entries(mapObj)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, topN)
+        .map(([label]) => label)
+        .join("、") || "無";
+    }
+
     function renderEmotionDistributionAnalysis() {
       const emotionPeriod = state.emotionAnalysisPeriod || "月";
       const servicePeriod = state.satisfactionAnalysisPeriod || "月";
@@ -6665,9 +6885,20 @@
       const permitted = new Set(getPermittedClientNames());
       const emotionRows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange));
       const serviceRows = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, serviceRange));
+      const recordRows = state.records.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange));
+      const eventRows = state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange));
+      const ispRows = state.isps.filter(x => permitted.has(x.clientName));
       const emotionBody = document.getElementById("emotionDistributionBody");
       const serviceBody = document.getElementById("serviceEmotionDistributionBody");
-      if (!emotionBody || !serviceBody) return;
+      const timeSlotBody = document.getElementById("emotionTimeSlotBody");
+      const weekdayBody = document.getElementById("emotionWeekdayBody");
+      const tokenBody = document.getElementById("emotionTokenBody");
+      const behaviorBody = document.getElementById("emotionBehaviorBody");
+      const activityBody = document.getElementById("emotionActivityBody");
+      const teacherBody = document.getElementById("emotionTeacherBody");
+      const ispImpactBody = document.getElementById("emotionIspImpactBody");
+      const ispImpactSummary = document.getElementById("emotionIspImpactSummary");
+      if (!emotionBody || !serviceBody || !timeSlotBody || !weekdayBody || !tokenBody || !behaviorBody || !activityBody || !teacherBody || !ispImpactBody || !ispImpactSummary) return;
 
       const emotionSummary = emotionOptions.map(label => {
         const rows = emotionRows.filter(x => String(x.emotion || "") === label);
@@ -6676,6 +6907,23 @@
         return `<tr><td>${label}</td><td>${rows.length}</td><td>${ratio}</td><td>${avgIntensity}</td></tr>`;
       }).join("");
       emotionBody.innerHTML = emotionSummary || "<tr><td colspan='4'>尚無情緒紀錄</td></tr>";
+
+      const pieLabels = emotionOptions.filter(label => emotionRows.some(row => row.emotion === label));
+      const pieValues = pieLabels.map(label => emotionRows.filter(row => row.emotion === label).length);
+      upsertChart(
+        "emotionDistributionPie",
+        "emotionDistributionPieChart",
+        "pie",
+        {
+          labels: pieLabels.length ? pieLabels : ["尚無資料"],
+          datasets: [{
+            data: pieValues.length ? pieValues : [1],
+            backgroundColor: ["#f59e0b", "#22c55e", "#38bdf8", "#fb7185", "#ef4444"],
+            hoverOffset: 0
+          }]
+        },
+        { animation: false }
+      );
 
       const serviceMap = {};
       serviceRows.forEach(row => {
@@ -6692,11 +6940,247 @@
         return `<tr><td>${label}</td><td>${data.count}</td><td>${avg}</td><td>${cats}</td></tr>`;
       }).join("") || "<tr><td colspan='4'>尚無服務情緒表現紀錄</td></tr>";
 
+      const timeSlotMap = { "上午": {}, "下午": {}, "晚上": {} };
+      emotionRows.forEach(row => {
+        const hour = row.createdAtIso ? new Date(row.createdAtIso).getHours() : 9;
+        const slot = getTimeSlotByHour(hour);
+        const emotion = row.emotion || "未填";
+        timeSlotMap[slot][emotion] = (timeSlotMap[slot][emotion] || 0) + 1;
+      });
+      timeSlotBody.innerHTML = Object.entries(timeSlotMap).map(([slot, bag]) => {
+        const top = pickTopEntry(bag);
+        const note = top === "無" ? "資料不足" : `${slot}最常出現 ${top}`;
+        return `<tr><td>${slot}</td><td>${top}</td><td>${note}</td></tr>`;
+      }).join("");
+
+      const weekdayMap = {};
+      emotionRows.forEach(row => {
+        const weekday = getWeekdayLabel(row.date);
+        weekdayMap[weekday] = weekdayMap[weekday] || {};
+        const emotion = row.emotion || "未填";
+        weekdayMap[weekday][emotion] = (weekdayMap[weekday][emotion] || 0) + 1;
+      });
+      const weekdayOrder = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"];
+      weekdayBody.innerHTML = weekdayOrder.map(day => {
+        const top = pickTopEntry(weekdayMap[day] || {});
+        const note = top === "無" ? "資料不足" : `${day}${/生氣|焦慮|難過/.test(top) ? "需留意負向情緒" : "整體較穩定"}`;
+        return `<tr><td>${day}</td><td>${top}</td><td>${note}</td></tr>`;
+      }).join("");
+
+      const tokenMap = {};
+      recordRows.forEach(row => {
+        const emotion = row.dailyEmotion || "未填";
+        tokenMap[emotion] = tokenMap[emotion] || { total: 0, count: 0 };
+        tokenMap[emotion].total += Number(row.tokenAward || 0) - Number(row.tokenDeduct || 0);
+        tokenMap[emotion].count += 1;
+      });
+      tokenBody.innerHTML = Object.entries(tokenMap).map(([emotion, data]) => {
+        const avg = data.count ? (data.total / data.count).toFixed(1) : "0.0";
+        return `<tr><td>${emotion}</td><td>${Number(avg) > 0 ? "+" : ""}${avg}</td><td>${data.count}</td></tr>`;
+      }).join("") || "<tr><td colspan='3'>尚無情緒與代幣資料</td></tr>";
+
+      const behaviorMap = {};
+      eventRows.forEach(row => {
+        const emotion = getEmotionLabelForDate(row.clientName, row.date);
+        behaviorMap[emotion] = behaviorMap[emotion] || {};
+        const behavior = row.behavior || row.handlingResult || "未填";
+        behaviorMap[emotion][behavior] = (behaviorMap[emotion][behavior] || 0) + 1;
+      });
+      behaviorBody.innerHTML = Object.entries(behaviorMap).map(([emotion, bag]) => {
+        const top = pickTopEntry(bag);
+        const combos = summarizeTopN(bag, 3);
+        return `<tr><td>${emotion}</td><td>${top}</td><td>${combos}</td></tr>`;
+      }).join("") || "<tr><td colspan='3'>尚無情緒與行為關聯資料</td></tr>";
+
+      const activityMap = {};
+      emotionRows.forEach(row => {
+        const activity = row.activity || "未填活動";
+        activityMap[activity] = activityMap[activity] || {};
+        const emotion = row.emotion || "未填";
+        activityMap[activity][emotion] = (activityMap[activity][emotion] || 0) + 1;
+      });
+      activityBody.innerHTML = Object.entries(activityMap).map(([activity, bag]) => {
+        const top = pickTopEntry(bag);
+        const note = top === "無" ? "資料不足" : `${activity} 以 ${top} 最常見`;
+        return `<tr><td>${activity}</td><td>${top}</td><td>${note}</td></tr>`;
+      }).join("") || "<tr><td colspan='3'>尚無情緒與活動資料</td></tr>";
+
+      const teacherMap = {};
+      eventRows.forEach(row => {
+        const teacher = row.createdBy || "未填";
+        teacherMap[teacher] = teacherMap[teacher] || { stable: 0, total: 0, recover: 0 };
+        teacherMap[teacher].total += 1;
+        teacherMap[teacher].recover += Number(row.recoverMinutes || 0);
+        if (/平穩|恢復|回到/.test(String(row.handlingResult || "")) || Number(row.recoverMinutes || 0) <= 10) {
+          teacherMap[teacher].stable += 1;
+        }
+      });
+      teacherBody.innerHTML = Object.entries(teacherMap).map(([teacher, data]) => {
+        const rate = data.total ? Math.round((data.stable / data.total) * 100) : 0;
+        const note = `平均恢復 ${Math.round(data.recover / Math.max(1, data.total))} 分`;
+        return `<tr><td>${teacher}</td><td>${rate}%</td><td>${note}</td></tr>`;
+      }).join("") || "<tr><td colspan='3'>尚無教保員介入資料</td></tr>";
+
+      const ispSummaries = ispRows.slice(0, 6).map(isp => {
+        const clientEmotionRows = emotionRows.filter(row => row.clientName === isp.clientName).sort((a, b) => String(a.date).localeCompare(String(b.date)));
+        if (clientEmotionRows.length < 2) return null;
+        const half = Math.max(1, Math.floor(clientEmotionRows.length / 2));
+        const beforeRows = clientEmotionRows.slice(0, half);
+        const afterRows = clientEmotionRows.slice(half);
+        const beforePositive = beforeRows.length ? Math.round((beforeRows.filter(row => isPositiveEmotionLabel(row.emotion)).length / beforeRows.length) * 100) : 0;
+        const afterPositive = afterRows.length ? Math.round((afterRows.filter(row => isPositiveEmotionLabel(row.emotion)).length / afterRows.length) * 100) : 0;
+        const beforeNegative = beforeRows.length ? Math.round((beforeRows.filter(row => /生氣|焦慮|難過/.test(String(row.emotion || ""))).length / beforeRows.length) * 100) : 0;
+        const afterNegative = afterRows.length ? Math.round((afterRows.filter(row => /生氣|焦慮|難過/.test(String(row.emotion || ""))).length / afterRows.length) * 100) : 0;
+        const relatedEvents = eventRows.filter(row => row.clientName === isp.clientName && /攻擊|推人|拍桌|大叫|拒絕/.test(`${row.behavior || ""} ${row.note || ""}`)).length;
+        return {
+          goal: isp.goal,
+          before: `正向 ${beforePositive}% / 負向 ${beforeNegative}%`,
+          after: `正向 ${afterPositive}% / 負向 ${afterNegative}%`,
+          summary: `近三個月正向情緒比例由 ${beforePositive}% 變化至 ${afterPositive}%，負向情緒比例由 ${beforeNegative}% 變化為 ${afterNegative}%，可與相關事件 ${relatedEvents} 筆一起觀察。`
+        };
+      }).filter(Boolean);
+      ispImpactBody.innerHTML = ispSummaries.map(item => `<tr><td>${item.goal}</td><td>${item.before}</td><td>${item.after}</td><td>${item.summary}</td></tr>`).join("") || "<tr><td colspan='4'>尚無足夠 ISP 與情緒資料</td></tr>";
+      ispImpactSummary.textContent = ispSummaries.length ? ispSummaries[0].summary : "尚無足夠 ISP 與情緒資料進行比較。";
+
       renderEmotionAdvicePanels({
         emotionRows,
-        eventRows: state.behaviorEvents.filter(x => permitted.has(x.clientName) && inRange(x.date, emotionRange)),
+        eventRows,
         serviceRows
       });
+    }
+
+    function isPositiveEmotionLabel(label) {
+      return /愉快|平穩|普通/.test(String(label || ""));
+    }
+
+    function formatQuarterLabel(date) {
+      return `${date.getFullYear()} Q${Math.floor(date.getMonth() / 3) + 1}`;
+    }
+
+    function getTrendBuckets(period) {
+      const now = new Date();
+      if (period === "日") {
+        return Array.from({ length: 7 }, (_, idx) => {
+          const d = new Date(now);
+          d.setDate(d.getDate() - (6 - idx));
+          const iso = d.toISOString().slice(0, 10);
+          return { label: iso.slice(5), match: row => row.date === iso };
+        });
+      }
+      if (period === "週") {
+        return Array.from({ length: 6 }, (_, idx) => {
+          const range = getPeriodRange(now, "週", -(5 - idx), "emotion");
+          return {
+            label: `${range.start.toISOString().slice(5, 10)}`,
+            match: row => inRange(row.date, range)
+          };
+        });
+      }
+      if (period === "月") {
+        return Array.from({ length: 6 }, (_, idx) => {
+          const range = getPeriodRange(now, "月", -(5 - idx), "emotion");
+          return {
+            label: `${range.start.getFullYear()}/${String(range.start.getMonth() + 1).padStart(2, "0")}`,
+            match: row => inRange(row.date, range)
+          };
+        });
+      }
+      if (period === "季") {
+        return Array.from({ length: 4 }, (_, idx) => {
+          const range = getPeriodRange(now, "季", -(3 - idx), "emotion");
+          return { label: formatQuarterLabel(range.start), match: row => inRange(row.date, range) };
+        });
+      }
+      if (period === "年") {
+        const year = Number(state.emotionAnalysisYear || now.getFullYear()) || now.getFullYear();
+        return Array.from({ length: 12 }, (_, idx) => {
+          const start = new Date(year, idx, 1);
+          const end = new Date(year, idx + 1, 1);
+          return {
+            label: `${idx + 1}月`,
+            match: row => {
+              const d = new Date(`${row.date}T00:00:00`);
+              return d >= start && d < end;
+            }
+          };
+        });
+      }
+      const customRange = getPeriodRange(now, "自訂", 0, "emotion");
+      const spanDays = Math.max(1, Math.round((customRange.end - customRange.start) / (1000 * 60 * 60 * 24)));
+      if (spanDays <= 14) {
+        return Array.from({ length: spanDays }, (_, idx) => {
+          const d = new Date(customRange.start);
+          d.setDate(d.getDate() + idx);
+          const iso = d.toISOString().slice(0, 10);
+          return { label: iso.slice(5), match: row => row.date === iso };
+        });
+      }
+      const bucketCount = Math.min(6, Math.max(2, Math.ceil(spanDays / 7)));
+      const bucketSize = Math.ceil(spanDays / bucketCount);
+      return Array.from({ length: bucketCount }, (_, idx) => {
+        const start = new Date(customRange.start);
+        start.setDate(start.getDate() + idx * bucketSize);
+        const end = new Date(start);
+        end.setDate(end.getDate() + bucketSize);
+        return {
+          label: `${start.toISOString().slice(5, 10)}`,
+          match: row => {
+            const d = new Date(`${row.date}T00:00:00`);
+            return d >= start && d < end;
+          }
+        };
+      });
+    }
+
+    function renderEmotionTrendChart() {
+      const period = state.emotionAnalysisPeriod || "月";
+      const range = getPeriodRange(new Date(), period, 0, "emotion");
+      const permitted = new Set(getPermittedClientNames());
+      const rows = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, range));
+      const buckets = getTrendBuckets(period);
+      const labels = buckets.map(bucket => bucket.label);
+      const values = buckets.map(bucket => {
+        const bucketRows = rows.filter(bucket.match);
+        if (!bucketRows.length) return 0;
+        const positiveCount = bucketRows.filter(row => isPositiveEmotionLabel(row.emotion)).length;
+        return Math.round((positiveCount / bucketRows.length) * 100);
+      });
+
+      upsertChart(
+        "emotionPositiveTrend",
+        "emotionPositiveTrendChart",
+        "line",
+        {
+          labels,
+          datasets: [{
+            label: "正向情緒比例%",
+            data: values,
+            borderColor: "#f59e0b",
+            backgroundColor: "rgba(245,158,11,0.18)",
+            fill: true,
+            tension: 0.3
+          }]
+        },
+        { animation: false, scales: { y: { min: 0, max: 100 } } }
+      );
+
+      const conclusionEl = document.getElementById("emotionTrendConclusion");
+      if (!conclusionEl) return;
+      const nonZeroValues = values.filter(v => Number.isFinite(v));
+      if (!rows.length || nonZeroValues.length < 2) {
+        conclusionEl.textContent = "尚無足夠資料判讀情緒是否改善。";
+        return;
+      }
+      const firstValue = nonZeroValues[0];
+      const lastValue = nonZeroValues[nonZeroValues.length - 1];
+      const delta = lastValue - firstValue;
+      if (delta > 0) {
+        conclusionEl.textContent = `教保員可直接判讀：介入後情緒改善，正向情緒比例由 ${firstValue}% 提升至 ${lastValue}%。`;
+      } else if (delta < 0) {
+        conclusionEl.textContent = `教保員可直接判讀：近期正向情緒比例由 ${firstValue}% 降至 ${lastValue}%，建議回看近幾次介入與高風險活動。`;
+      } else {
+        conclusionEl.textContent = `教保員可直接判讀：正向情緒比例維持在 ${lastValue}% 左右，整體趨勢持平。`;
+      }
     }
 
     function upsertChart(chartKey, canvasId, type, data, options = {}) {
