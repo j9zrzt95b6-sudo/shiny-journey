@@ -716,6 +716,7 @@
       behaviorEvents: [],
       serviceRecords: [],
       emotionAnalysisPeriod: "月",
+      satisfactionAnalysisPeriod: "月",
       lastAnalysisFilterSourceKey: "completion",
       mediaFilter: { clientName: "全部個案", mediaType: "全部" },
       serviceFilter: { category: "全部", keyword: "", clientName: "全部個案" },
@@ -2513,7 +2514,7 @@
 
       host.innerHTML = `
         <div class="card">
-          <h3>新增每日工作紀錄（含工作品質與回扣）</h3>
+          <h3>新增每日工作紀錄（含工作品質、回扣與情緒行為）</h3>
           <form id="recordForm" class="grid-4">
             <div class="field"><label>日期</label><input type="date" name="date" value="${today()}" required /></div>
             <div class="field"><label>個案</label><select name="clientName">${clientOptions}</select></div>
@@ -2523,6 +2524,7 @@
             <div class="field"><label>代幣給予（老師輸入）</label><input type="number" min="0" step="1" name="tokenAward" value="1" /></div>
             <div class="field"><label>工作品質</label><select name="quality"><option>良好</option><option>普通</option><option>不佳</option></select></div>
             <div class="field"><label>品質不佳回扣（老師輸入）</label><input type="number" min="0" step="1" name="tokenDeduct" value="0" /></div>
+            <div class="field"><label>😊 當日情緒</label><select name="dailyEmotion">${emotionOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>行為事件</label><input name="behaviorEvent" placeholder="如：搶物品" /></div>
             <div class="field"><label>處理方式</label><input name="handling" placeholder="如：口頭提醒" /></div>
             <div class="field"><label>結果</label><input name="result" placeholder="如：穩定" /></div>
@@ -2545,6 +2547,7 @@
             </div>
             <div class="actions" style="align-items:end; justify-content:flex-end;">
               <button class="btn good" type="button" id="recordExportSelectedBtn">匯出勾選</button>
+              <button class="btn good" type="button" id="recordExportFilteredBtn">匯出目前篩選</button>
             </div>
           </div>
           <div class="actions" style="margin-bottom:8px;">
@@ -2552,7 +2555,7 @@
             <button class="btn danger" type="button" id="recordBulkDeleteBtn">刪除勾選</button>
           </div>
           <table>
-            <thead><tr><th><input type="checkbox" id="recordSelectAll" aria-label="全選每日紀錄"></th><th>日期</th><th>個案</th><th>工作</th><th>提示</th><th>品質</th><th>代幣(+/-)</th><th>建立者</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="recordSelectAll" aria-label="全選每日紀錄"></th><th>日期</th><th>個案</th><th>工作</th><th>提示</th><th>品質</th><th>😊 當日情緒</th><th>代幣(+/-)</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="recordTable"></tbody>
           </table>
         </div>
@@ -2570,6 +2573,7 @@
         <tr>
           <td><input type="checkbox" data-record-select="${r.id}" aria-label="勾選每日紀錄 ${r.clientName} ${r.taskName}"></td>
           <td>${r.date}</td><td>${r.clientName}</td><td>${r.taskName}</td><td>${r.prompt}</td><td>${r.quality}</td>
+          <td><strong>${r.dailyEmotion || "-"}</strong></td>
           <td>${r.tokenAward} / -${r.tokenDeduct}</td>
           <td>${r.createdBy || "-"}</td>
           <td>
@@ -2608,6 +2612,7 @@
           提示: r.prompt,
           是否完成: r.completed ? "是" : "否",
           品質: r.quality,
+          當日情緒: r.dailyEmotion || "",
           代幣給予: r.tokenAward,
           品質回扣: r.tokenDeduct,
           行為事件: r.behaviorEvent || "",
@@ -2662,6 +2667,14 @@
           const selectedRows = rows.filter(r => selectedSet.has(r.id));
           exportRows(selectedRows);
         });
+
+        const recordExportFilteredBtn = host.querySelector("#recordExportFilteredBtn");
+        if (recordExportFilteredBtn) {
+          recordExportFilteredBtn.addEventListener("click", () => {
+            if (!rows.length) return alert("目前篩選條件下沒有可匯出的每日紀錄");
+            exportRows(rows);
+          });
+        }
       }
 
       function setAllRecordSelection(checked) {
@@ -2745,13 +2758,14 @@
           quality: fd.get("quality"),
           tokenAward: Number(fd.get("tokenAward") || 0),
           tokenDeduct: Number(fd.get("tokenDeduct") || 0),
+          dailyEmotion: fd.get("dailyEmotion"),
           behaviorEvent: fd.get("behaviorEvent"),
           handling: fd.get("handling"),
           result: fd.get("result"),
           createdBy: getCurrentActor()
         };
         state.records.push(rec);
-        log("新增每日紀錄", `${rec.clientName}/${rec.taskName}/+${rec.tokenAward}/-${rec.tokenDeduct}`);
+        log("新增每日紀錄", `${rec.clientName}/${rec.taskName}/情緒:${rec.dailyEmotion}`);
         renderAll();
       });
 
@@ -2772,6 +2786,7 @@
         rec.quality = fd.get("quality");
         rec.tokenAward = Number(fd.get("tokenAward") || 0);
         rec.tokenDeduct = Number(fd.get("tokenDeduct") || 0);
+        rec.dailyEmotion = fd.get("dailyEmotion");
         rec.behaviorEvent = fd.get("behaviorEvent");
         rec.handling = fd.get("handling");
         rec.result = fd.get("result");
@@ -2805,6 +2820,7 @@
           form.elements["quality"].value = rec.quality;
           form.elements["tokenAward"].value = rec.tokenAward;
           form.elements["tokenDeduct"].value = rec.tokenDeduct;
+          form.elements["dailyEmotion"].value = rec.dailyEmotion || "";
           form.elements["behaviorEvent"].value = rec.behaviorEvent;
           form.elements["handling"].value = rec.handling;
           form.elements["result"].value = rec.result;
@@ -3839,12 +3855,14 @@
         </div>
 
         <div class="card">
-          <h3>個案服務紀錄</h3>
+          <h3>個案服務紀錄（含情感滿意度分析）</h3>
           <form id="serviceForm" class="grid-4">
             <div class="field"><label>日期</label><input type="date" name="date" value="${today()}" required></div>
             <div class="field"><label>個案</label><select name="clientName">${clientOptions}</select></div>
             <div class="field"><label>分類</label><select name="category">${serviceCategories.map(x => `<option>${x}</option>`).join("")}</select></div>
             <div class="field"><label>重點</label><input name="title" placeholder="例如：新增洗手獨立步驟"></div>
+            <div class="field"><label>情感滿意度</label><select name="emotionSatisfaction">${emotionOptions.map(x => `<option>${x}</option>`).join("")}</select></div>
+            <div class="field"><label>滿意度評分（1~5）</label><input type="number" name="satisfactionScore" min="1" max="5" value="3" required></div>
             <div class="field" style="grid-column:1 / -1;"><label>內容</label><textarea name="detail" required placeholder="可記錄新技能、社交互動、身體狀況、用藥提醒、家長聯繫、外出活動、特殊觀察"></textarea></div>
             <div class="actions" style="grid-column: 1 / -1;">
               <button class="btn primary" type="submit">新增服務紀錄</button>
@@ -3867,7 +3885,7 @@
           </div>
 
           <table>
-            <thead><tr><th><input type="checkbox" id="serviceSelectAll" aria-label="全選服務紀錄"></th><th>日期</th><th>個案</th><th>分類</th><th>重點</th><th>內容</th><th>建立者</th><th>操作</th></tr></thead>
+            <thead><tr><th><input type="checkbox" id="serviceSelectAll" aria-label="全選服務紀錄"></th><th>日期</th><th>個案</th><th>分類</th><th>重點</th><th>情感滿意度</th><th>評分</th><th>內容</th><th>建立者</th><th>操作</th></tr></thead>
             <tbody id="serviceTable"></tbody>
           </table>
         </div>
@@ -4019,11 +4037,13 @@
           category: fd.get("category"),
           title: fd.get("title"),
           detail: fd.get("detail"),
+          emotionSatisfaction: fd.get("emotionSatisfaction"),
+          satisfactionScore: Number(fd.get("satisfactionScore") || 3),
           createdBy: getCurrentActor(),
           createdAtIso: new Date().toISOString()
         });
         state.selectedServiceForEdit = null;
-        log("新增服務紀錄", `${clientName}/${fd.get("category")}`);
+        log("新增服務紀錄", `${clientName}/${fd.get("category")} - ${fd.get("emotionSatisfaction")}`);
         renderAll();
       });
 
@@ -4040,7 +4060,9 @@
         row.category = fd.get("category");
         row.title = fd.get("title");
         row.detail = fd.get("detail");
-        log("更新服務紀錄", `${row.clientName}/${row.category}`);
+        row.emotionSatisfaction = fd.get("emotionSatisfaction");
+        row.satisfactionScore = Number(fd.get("satisfactionScore") || 3);
+        log("更新服務紀錄", `${row.clientName}/${row.category} - ${row.emotionSatisfaction}`);
         renderAll();
       });
 
@@ -4149,11 +4171,13 @@
           <td>${r.clientName}</td>
           <td>${r.category}</td>
           <td>${r.title || "-"}</td>
+          <td>${r.emotionSatisfaction || "-"}</td>
+          <td>${"★".repeat(Math.max(1, Math.min(5, Number(r.satisfactionScore || 3))))}</td>
           <td>${r.detail || "-"}</td>
           <td>${r.createdBy || "-"}</td>
           <td><button class="btn" data-service-manage="${r.id}">管理</button></td>
         </tr>
-      `).join("") || "<tr><td colspan='8'>尚無服務紀錄</td></tr>";
+      `).join("") || "<tr><td colspan='10'>尚無服務紀錄</td></tr>";
 
       const abcSelectAll = host.querySelector("#abcSelectAll");
       const abcSelectAllBtn = host.querySelector("#abcSelectAllBtn");
@@ -4210,7 +4234,9 @@
           紀錄類型: type,
           分類: "",
           情緒: "",
+          情感滿意度: "",
           強度: "",
+          評分: "",
           持續分鐘: "",
           前因A: "",
           行為B: "",
@@ -4248,6 +4274,8 @@
           base.分類 = row.category || "";
           base.重點 = row.title || "";
           base.內容 = row.detail || "";
+          base.情感滿意度 = row.emotionSatisfaction || "";
+          base.評分 = Number(row.satisfactionScore || 0);
           base.地點 = "";
           base.活動 = "";
           return base;
@@ -4616,6 +4644,8 @@
         serviceForm.elements["category"].value = row.category;
         serviceForm.elements["title"].value = row.title || "";
         serviceForm.elements["detail"].value = row.detail || "";
+        serviceForm.elements["emotionSatisfaction"].value = row.emotionSatisfaction || "";
+        serviceForm.elements["satisfactionScore"].value = row.satisfactionScore || 3;
       });
     }
 
@@ -5702,8 +5732,22 @@
         </div>
 
         <div class="card">
-          <h3>AI 成果摘要（情緒與行為）</h3>
-          <p id="emotionAiSummary">尚無資料</p>
+          <h3>滿意度成果分析（基於情感與服務紀錄）</h3>
+          <div class="grid-4">
+            <div class="field"><label>期間</label><select id="satisfactionPeriodSelect"><option ${state.satisfactionAnalysisPeriod === "日" ? "selected" : ""}>日</option><option ${state.satisfactionAnalysisPeriod === "週" ? "selected" : ""}>週</option><option ${state.satisfactionAnalysisPeriod === "月" ? "selected" : ""}>月</option><option ${state.satisfactionAnalysisPeriod === "季" ? "selected" : ""}>季</option></select></div>
+          </div>
+          <div class="cards" style="grid-template-columns: repeat(4, minmax(0,1fr));">
+            <div class="card"><div class="muted">平均滿意度評分</div><div class="metric" id="satisfactionAvgScore">-</div></div>
+            <div class="card"><div class="muted">高滿意度紀錄數</div><div class="metric" id="satisfactionHighCount">0</div></div>
+            <div class="card"><div class="muted">情感正向比例</div><div class="metric" id="satisfactionPositivePercent">0%</div></div>
+            <div class="card"><div class="muted">滿意度進度</div><div class="metric" id="satisfactionTrend">-</div></div>
+          </div>
+          <h4>服務分類滿意度</h4>
+          <table>
+            <thead><tr><th>服務分類</th><th>平均評分</th><th>紀錄數</th><th>情感分佈</th></tr></thead>
+            <tbody id="satisfactionCategoryBody"></tbody>
+          </table>
+          <p id="satisfactionAiSummary" class="mini">尚無服務紀錄資料</p>
         </div>
       `;
 
@@ -5896,6 +5940,14 @@
           renderAnalysis();
         });
       }
+
+      const satisfactionPeriodSelect = document.getElementById("satisfactionPeriodSelect");
+      if (satisfactionPeriodSelect) {
+        satisfactionPeriodSelect.addEventListener("change", e => {
+          state.satisfactionAnalysisPeriod = e.target.value;
+          renderAnalysis();
+        });
+      }
     }
 
     function applyLevelDefaults({ force = false } = {}) {
@@ -6028,6 +6080,7 @@
       renderAiJudgement(aiRecs);
       renderMediaRecords(mediaRecs);
       renderEmotionAnalysisInsights();
+      renderSatisfactionAnalysis();
     }
 
     function getPeriodRange(base, period, offset = 0) {
@@ -6143,6 +6196,78 @@
       const improvement = trendDelta < 0 ? `事件由 ${prevEvents.length} 次下降至 ${eventCount} 次` : `事件為 ${eventCount} 次（較前期${trendDelta > 0 ? "增加" : "持平"}）`;
       const topActivity = pickTopEntry(activityMap);
       aiSummary.textContent = `${period}度情緒事件分析：${improvement}，主要熱點為「${topActivity}」。配合代幣制度與介入策略後，建議持續使用固定流程、視覺提示與正向增強。`;
+    }
+
+    function renderSatisfactionAnalysis() {
+      const period = state.satisfactionAnalysisPeriod || "月";
+      const currentRange = getPeriodRange(new Date(), period, 0);
+      const prevRange = getPeriodRange(new Date(), period, -1);
+      const permitted = new Set(getPermittedClientNames());
+
+      const currentServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
+      const prevServices = state.serviceRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, prevRange));
+      const currentEmotion = state.emotionRecords.filter(x => permitted.has(x.clientName) && inRange(x.date, currentRange));
+
+      // 計算平均滿意度評分
+      const scores = currentServices.map(s => Number(s.satisfactionScore || 0)).filter(s => s > 0);
+      const avgScore = scores.length > 0 ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "-";
+      
+      // 計算高滿意度紀錄數（4-5分）
+      const highSatisfactionCount = scores.filter(s => s >= 4).length;
+      
+      // 計算情感正向比例
+      const positiveEmotions = currentEmotion.filter(x => /愉快|平穩/.test(String(x.emotion || "")));
+      const positivePercent = currentEmotion.length > 0 ? Math.round((positiveEmotions.length / currentEmotion.length) * 100) : 0;
+      
+      // 計算滿意度趨勢
+      const prevScores = prevServices.map(s => Number(s.satisfactionScore || 0)).filter(s => s > 0);
+      const prevAvgScore = prevScores.length > 0 ? (prevScores.reduce((a, b) => a + b, 0) / prevScores.length) : 0;
+      const scoreTrend = avgScore === "-" ? "-" : (Number(avgScore) > prevAvgScore ? `📈 上升 (${(Number(avgScore) - prevAvgScore).toFixed(1)})` : `📉 下降 (${(Number(avgScore) - prevAvgScore).toFixed(1)})`);
+
+      // 按分類計算平均評分
+      const categoryMap = {};
+      const categoryEmotions = {};
+      currentServices.forEach(s => {
+        const cat = s.category || "未分類";
+        if (!categoryMap[cat]) categoryMap[cat] = { scores: [], count: 0 };
+        categoryMap[cat].scores.push(Number(s.satisfactionScore || 0));
+        categoryMap[cat].count += 1;
+        categoryEmotions[cat] = categoryEmotions[cat] || [];
+        if (s.emotionSatisfaction) categoryEmotions[cat].push(s.emotionSatisfaction);
+      });
+
+      const avgScoreEl = document.getElementById("satisfactionAvgScore");
+      const highCountEl = document.getElementById("satisfactionHighCount");
+      const positivePercentEl = document.getElementById("satisfactionPositivePercent");
+      const trendEl = document.getElementById("satisfactionTrend");
+      const categoryBodyEl = document.getElementById("satisfactionCategoryBody");
+      const aiSummaryEl = document.getElementById("satisfactionAiSummary");
+
+      if (!avgScoreEl) return;
+
+      if (avgScoreEl) avgScoreEl.textContent = String(avgScore);
+      if (highCountEl) highCountEl.textContent = String(highSatisfactionCount);
+      if (positivePercentEl) positivePercentEl.textContent = `${positivePercent}%`;
+      if (trendEl) trendEl.textContent = scoreTrend;
+
+      if (categoryBodyEl) {
+        categoryBodyEl.innerHTML = Object.entries(categoryMap).map(([cat, data]) => {
+          const avgCatScore = (data.scores.reduce((a, b) => a + b, 0) / data.scores.length).toFixed(1);
+          const emotions = categoryEmotions[cat] || [];
+          const emotionSummary = emotions.length > 0 ? [...new Set(emotions)].join(", ") : "無";
+          return `<tr><td>${cat}</td><td>${"★".repeat(Math.round(Number(avgCatScore)))}</td><td>${data.count}</td><td>${emotionSummary}</td></tr>`;
+        }).join("") || "<tr><td colspan='4'>尚無服務紀錄</td></tr>";
+      }
+
+      if (aiSummaryEl) {
+        if (currentServices.length > 0) {
+          const topCategory = Object.entries(categoryMap).sort((a, b) => b[1].count - a[1].count)[0];
+          const summary = `本${period}共記錄 ${currentServices.length} 筆服務紀錄，平均滿意度評分 ${avgScore}/${5}。高滿意度紀錄 ${highSatisfactionCount} 筆，情感正向比例 ${positivePercent}%。主要服務分類為「${topCategory[0]}」。建議持續關注評分偏低項目，強化相關教保策略。`;
+          aiSummaryEl.textContent = summary;
+        } else {
+          aiSummaryEl.textContent = "尚無本期服務紀錄";
+        }
+      }
     }
 
     function upsertChart(chartKey, canvasId, type, data, options = {}) {
