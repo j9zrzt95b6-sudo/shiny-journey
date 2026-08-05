@@ -656,11 +656,13 @@
         {
           id: id(), date: today(), clientName: "王小明", className: "生訓1班", taskName: "擦桌子",
           completed: true, prompt: "完全獨立", quality: "良好", tokenAward: 3, tokenDeduct: 0,
+          dailyEmotion: "😀 愉快",
           behaviorEvent: "", handling: "", result: "", createdBy: "管理員"
         },
         {
           id: id(), date: today(), clientName: "王小明", className: "生訓1班", taskName: "倒垃圾",
           completed: true, prompt: "口頭提示", quality: "不佳", tokenAward: 3, tokenDeduct: 1,
+          dailyEmotion: "😡 生氣",
           behaviorEvent: "情緒激動", handling: "暫停活動", result: "平復", createdBy: "管理員"
         }
       ],
@@ -1817,6 +1819,12 @@
             const quality = qualities[(i + cIdx + tIdx) % qualities.length];
             const award = 1 + ((i + tIdx) % 4);
             const deduct = quality === "不佳" ? ((i + cIdx) % 2) : 0;
+            const emotionPool = ["😀 愉快", "😐 平穩", "😢 難過", "😡 生氣", "😰 焦慮"];
+            const emotionWeights = quality === "良好" ? [4, 3, 0, 0, 0] : quality === "不佳" ? [0, 1, 2, 3, 2] : [1, 4, 1, 1, 1];
+            const weightSum = emotionWeights.reduce((a, b) => a + b, 0);
+            let emotionRoll = (i * 7 + cIdx * 3 + tIdx * 11) % weightSum;
+            let pickedEmotion = emotionPool[0];
+            for (let ei = 0; ei < emotionPool.length; ei++) { if (emotionRoll < emotionWeights[ei]) { pickedEmotion = emotionPool[ei]; break; } emotionRoll -= emotionWeights[ei]; }
             state.records.push({
               id: id(),
               date,
@@ -1828,6 +1836,7 @@
               quality,
               tokenAward: award,
               tokenDeduct: deduct,
+              dailyEmotion: pickedEmotion,
               behaviorEvent: quality === "不佳" ? "注意力分散" : "",
               handling: quality === "不佳" ? "口頭提醒" : "",
               result: quality === "不佳" ? "可回到工作" : "",
@@ -1838,7 +1847,14 @@
       }
 
       if (!state.emotionRecords.length) {
+        const eDate = (daysAgo) => { const d = new Date(); d.setDate(d.getDate() - daysAgo); return d.toISOString().slice(0, 10); };
         state.emotionRecords.push(
+          { id: id(), date: eDate(0), clientName: "王小明", emotion: "😀 愉快", intensity: 1, durationMinutes: 30, location: "教室", activity: "工作", note: "獨立完成工作，表現佳，情緒全程愉快", createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: eDate(1), clientName: "王小明", emotion: "😰 焦慮", intensity: 3, durationMinutes: 15, location: "教室", activity: "轉換活動", note: "活動轉換時出現焦慮，給予視覺提示後緩解", createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: eDate(2), clientName: "王小明", emotion: "😡 生氣", intensity: 4, durationMinutes: 20, location: "教室", activity: "等待", note: "等待時間過長引發情緒，帶離後約10分鐘恢復", createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: eDate(3), clientName: "王小明", emotion: "😐 平穩", intensity: 2, durationMinutes: 60, location: "教室", activity: "工作", note: "全天情緒穩定，口頭提示有效", createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: eDate(5), clientName: "王小明", emotion: "😢 難過", intensity: 3, durationMinutes: 25, location: "餐廳", activity: "用餐", note: "今日偏好食物未供應，表現低落", createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: eDate(7), clientName: "王小明", emotion: "😀 愉快", intensity: 1, durationMinutes: 45, location: "社區", activity: "社區活動", note: "外出社區表現積極主動", createdBy: "黃老師", createdAtIso: new Date().toISOString() },
           {
             id: id(),
             date: today(),
@@ -1893,16 +1909,15 @@
       }
 
       if (!state.serviceRecords.length) {
-        state.serviceRecords.push({
-          id: id(),
-          date: today(),
-          clientName: "王小明",
-          category: "新技能",
-          title: "洗手流程新增獨立步驟",
-          detail: "今天可在口頭提示後完成搓洗與沖水，較上週進步。",
-          createdBy: "林老師",
-          createdAtIso: new Date().toISOString()
-        });
+        const sDate = (daysAgo) => { const d = new Date(); d.setDate(d.getDate() - daysAgo); return d.toISOString().slice(0, 10); };
+        state.serviceRecords.push(
+          { id: id(), date: sDate(0), clientName: "王小明", category: "新技能", title: "洗手流程新增獨立步驟", detail: "今天可在口頭提示後完成搓洗與沖水，較上週進步。", emotionSatisfaction: "😀 愉快", satisfactionScore: 5, createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: sDate(1), clientName: "王小明", category: "行為支持", title: "轉換提示策略調整", detail: "改用視覺計時器後轉換時等待焦慮明顯減少。", emotionSatisfaction: "😐 平穩", satisfactionScore: 3, createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: sDate(3), clientName: "王小華", category: "成果記錄", title: "社區購物獨立結帳", detail: "在協助下完成超商購物及結帳，互動積極。", emotionSatisfaction: "😀 愉快", satisfactionScore: 5, createdBy: "黃老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: sDate(5), clientName: "王小明", category: "溝通訓練", title: "圖卡溝通板練習", detail: "能使用圖卡表達需求，理解率約70%。", emotionSatisfaction: "😐 平穩", satisfactionScore: 3, createdBy: "林老師", createdAtIso: new Date().toISOString() },
+          { id: id(), date: sDate(7), clientName: "王小明", category: "新技能", title: "倒垃圾流程完成", detail: "全程獨立完成，僅一次口頭提示。", emotionSatisfaction: "😀 愉快", satisfactionScore: 4, createdBy: "管理員", createdAtIso: new Date().toISOString() },
+          { id: id(), date: sDate(10), clientName: "王小華", category: "行為支持", title: "情緒調節練習", detail: "練習深呼吸後可在5分鐘內自我平復。", emotionSatisfaction: "😢 難過", satisfactionScore: 2, createdBy: "黃老師", createdAtIso: new Date().toISOString() }
+        );
       }
     }
 
