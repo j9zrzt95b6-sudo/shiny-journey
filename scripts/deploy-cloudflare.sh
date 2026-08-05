@@ -56,7 +56,15 @@ looks_like_placeholder() {
   if [[ -z "$value" ]]; then
     return 0
   fi
-  if [[ "$value" =~ (your_|replace|changeme|todo) ]]; then
+  local lowered
+  lowered="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')"
+  if [[ "$lowered" =~ (your_|replace|changeme|todo|example|sample|dummy|test|token_here|account_id_here) ]]; then
+    return 0
+  fi
+  if [[ "$value" =~ (你的|請填|示範|範例|真實token|真實token值) ]]; then
+    return 0
+  fi
+  if [[ "$value" =~ ^[xX*._-]+$ ]]; then
     return 0
   fi
   return 1
@@ -236,17 +244,17 @@ fi
 if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "$TOKEN_VALUE" || looks_like_placeholder "$ACCOUNT_ID_VALUE"; then
   if [[ "$DRY_RUN" == "true" ]]; then
     warn "Cloudflare credentials are still placeholders or not set."
-    warn "Edit $ENV_FILE and fill in real values before a real deploy."
+    warn "Edit $ENV_FILE or $ENV_LOCAL_FILE and fill in real values before a real deploy."
     info "Dry run completed. No deployment was performed."
     exit 0
   fi
 
   echo "Missing or placeholder CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID."
-  echo "Export real values, or set them in .env.cloudflare(.local), then re-run this script."
+  echo "Export real values, or set them in $ENV_FILE / $ENV_LOCAL_FILE, then re-run this script."
   echo "Example:"
   echo "  export CLOUDFLARE_API_TOKEN='your_token'"
   echo "  export CLOUDFLARE_ACCOUNT_ID='your_account_id'"
-  echo "Or create: $ENV_FILE"
+  echo "Or create: $ENV_LOCAL_FILE"
   exit 1
 fi
 
