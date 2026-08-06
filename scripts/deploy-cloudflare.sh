@@ -231,19 +231,17 @@ fi
 TOKEN_VALUE="${CLOUDFLARE_API_TOKEN:-}"
 ACCOUNT_ID_VALUE="${CLOUDFLARE_ACCOUNT_ID:-}"
 
+TOKEN_HAS_NON_ASCII=false
 if [[ -n "$TOKEN_VALUE" ]] && printf '%s' "$TOKEN_VALUE" | LC_ALL=C grep -q '[^ -~]'; then
-  echo "Invalid CLOUDFLARE_API_TOKEN: contains non-ASCII characters."
-  echo "Please paste a real token value (usually starts with 'cf')."
-  exit 1
-fi
-
-if [[ -n "$TOKEN_VALUE" ]] && [[ ! "$TOKEN_VALUE" =~ ^cf ]]; then
-  warn "CLOUDFLARE_API_TOKEN does not start with 'cf'. Please confirm token value."
+  TOKEN_HAS_NON_ASCII=true
 fi
 
 if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "$TOKEN_VALUE" || looks_like_placeholder "$ACCOUNT_ID_VALUE"; then
   if [[ "$DRY_RUN" == "true" ]]; then
     warn "Cloudflare credentials are still placeholders or not set."
+    if [[ "$TOKEN_HAS_NON_ASCII" == "true" ]]; then
+      warn "CLOUDFLARE_API_TOKEN contains non-ASCII characters (usually from placeholder/demo text)."
+    fi
     warn "Edit $ENV_FILE or $ENV_LOCAL_FILE and fill in real values before a real deploy."
     info "Dry run completed. No deployment was performed."
     exit 0
@@ -256,6 +254,16 @@ if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "
   echo "  export CLOUDFLARE_ACCOUNT_ID='your_account_id'"
   echo "Or create: $ENV_LOCAL_FILE"
   exit 1
+fi
+
+if [[ "$TOKEN_HAS_NON_ASCII" == "true" ]]; then
+  echo "Invalid CLOUDFLARE_API_TOKEN: contains non-ASCII characters."
+  echo "Please paste a real token value (usually starts with 'cf')."
+  exit 1
+fi
+
+if [[ -n "$TOKEN_VALUE" ]] && [[ ! "$TOKEN_VALUE" =~ ^cf ]]; then
+  warn "CLOUDFLARE_API_TOKEN does not start with 'cf'. Please confirm token value."
 fi
 
 if [[ "$DRY_RUN" == "true" ]]; then

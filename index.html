@@ -2859,6 +2859,34 @@
 
     function renderTokens() {
       const host = document.getElementById("view-tokens");
+
+      // Normalize legacy/cloud records so bulk actions can reliably match rows.
+      const ensureTokenExchangeIds = () => {
+        if (!Array.isArray(state.tokenExchanges)) {
+          state.tokenExchanges = [];
+          return;
+        }
+        let changed = false;
+        const stamp = Date.now().toString(36);
+        state.tokenExchanges = state.tokenExchanges.map((row, index) => {
+          if (!row || typeof row !== "object") return row;
+          const next = { ...row };
+          const rawId = next.id;
+          if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
+            next.id = `ex-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+            changed = true;
+          } else if (typeof rawId !== "string") {
+            next.id = String(rawId);
+            changed = true;
+          }
+          return next;
+        });
+        if (changed && state.selectedExchangeForEdit != null) {
+          state.selectedExchangeForEdit = String(state.selectedExchangeForEdit);
+        }
+      };
+      ensureTokenExchangeIds();
+
       const scopedClients = getToolbarScopedClients({ respectSelectedClient: true });
       const scopedClientNames = new Set(scopedClients.map(c => c.name));
       const tokenByClient = {};
@@ -3377,7 +3405,7 @@
       if (exchangeUpdateBtn) {
         exchangeUpdateBtn.addEventListener("click", () => {
           if (!state.selectedExchangeForEdit) return alert("請先按管理載入兌換紀錄");
-          const target = state.tokenExchanges.find(x => x.id === state.selectedExchangeForEdit);
+          const target = state.tokenExchanges.find(x => String(x.id) === String(state.selectedExchangeForEdit));
           if (!target) return;
           if (!canEditCareRecordByRole(target)) return alert("目前權限不可修改此兌換紀錄");
           const fd = new FormData(exchangeForm);
@@ -3417,7 +3445,7 @@
       if (exchangeDeleteBtn) {
         exchangeDeleteBtn.addEventListener("click", () => {
           if (!state.selectedExchangeForEdit) return alert("請先按管理載入兌換紀錄");
-          const idx = state.tokenExchanges.findIndex(x => x.id === state.selectedExchangeForEdit);
+          const idx = state.tokenExchanges.findIndex(x => String(x.id) === String(state.selectedExchangeForEdit));
           if (idx < 0) return;
           if (!assertOwnerBeforeDelete(state.tokenExchanges[idx], "兌換紀錄")) return;
           const removed = state.tokenExchanges.splice(idx, 1)[0];
@@ -3478,7 +3506,7 @@
           const removed = [];
           let denied = 0;
           state.tokenExchanges = state.tokenExchanges.filter(row => {
-            if (!selectedSet.has(row.id)) return true;
+            if (!selectedSet.has(String(row.id))) return true;
             if (!assertOwnerBeforeDelete(row, "兌換紀錄")) {
               denied += 1;
               return true;
@@ -3487,7 +3515,7 @@
             return false;
           });
           if (!removed.length) return alert("沒有可刪除的勾選兌換紀錄");
-          if (state.selectedExchangeForEdit && selectedSet.has(state.selectedExchangeForEdit)) {
+          if (state.selectedExchangeForEdit && selectedSet.has(String(state.selectedExchangeForEdit))) {
             state.selectedExchangeForEdit = null;
           }
           log("批次刪除兌換紀錄", `成功 ${removed.length} 筆${denied ? `，權限不足 ${denied} 筆` : ""}`);
@@ -3500,7 +3528,7 @@
           if (!selectedIds.length) return alert("請先勾選至少一筆兌換紀錄");
           const selectedSet = new Set(selectedIds);
           const rows = filteredExchanges
-            .filter(x => selectedSet.has(x.id))
+            .filter(x => selectedSet.has(String(x.id)))
             .map(x => ({
               日期: x.redeemDate || String(x.dateTime || "").slice(0, 10),
               個案: x.clientName,
@@ -3533,9 +3561,9 @@
       exchangeTable.addEventListener("click", e => {
         const btn = e.target.closest("button");
         if (!btn || !btn.dataset.exchangeManage) return;
-        const row = state.tokenExchanges.find(x => x.id === btn.dataset.exchangeManage);
+        const row = state.tokenExchanges.find(x => String(x.id) === String(btn.dataset.exchangeManage));
         if (!row) return;
-        state.selectedExchangeForEdit = row.id;
+        state.selectedExchangeForEdit = String(row.id);
         exchangeForm.elements["clientName"].value = row.clientName || state.clients[0]?.name || "";
         const reward = state.tokenShops.find(r => r.id === row.rewardId)
           || state.tokenShops.find(r => r.item === (row.rewardItem || row.item || row.rewardName));
