@@ -37,6 +37,28 @@ vlog() {
   fi
 }
 
+run_public_verification_with_retry() {
+  local healthcheck_script="$1"
+  local api_url="$2"
+  local max_attempts=3
+  local attempt=1
+
+  while [[ "$attempt" -le "$max_attempts" ]]; do
+    info "Running public verification on $api_url ... (attempt $attempt/$max_attempts)"
+    if bash "$healthcheck_script" "$api_url" --public-only; then
+      return 0
+    fi
+
+    if [[ "$attempt" -lt "$max_attempts" ]]; then
+      warn "Public verification failed on attempt $attempt. Retrying..."
+    fi
+    attempt=$((attempt + 1))
+  done
+
+  echo "Public verification failed after $max_attempts attempts."
+  return 1
+}
+
 prefer_existing_secret() {
   local var_name="$1"
   local original_value="$2"
@@ -284,8 +306,7 @@ if [[ "$VERIFY_PUBLIC" == "true" ]]; then
       echo "Run: chmod +x $HEALTHCHECK_SCRIPT"
     fi
   else
-    info "Running public verification on $API_URL ..."
-    bash "$HEALTHCHECK_SCRIPT" "$API_URL" --public-only
+    run_public_verification_with_retry "$HEALTHCHECK_SCRIPT" "$API_URL"
   fi
 fi
 
