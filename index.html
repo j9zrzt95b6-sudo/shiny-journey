@@ -3098,6 +3098,7 @@
           <div class="actions">
             <button class="btn" id="exportExchangeExcelBtn">匯出兌換紀錄 Excel</button>
             <button class="btn" type="button" id="resetExchangeFilterBtn">重置篩選</button>
+            <button class="btn warn" type="button" id="cleanupExchangeDuplicatesBtn">清理重複兌換</button>
           </div>
           <form id="exchangeForm" class="grid-4">
             <div class="field"><label>個案</label><select name="clientName">${clientOptions}</select></div>
@@ -3320,6 +3321,7 @@
       const exchangeTable = host.querySelector("#exchangeTable");
       const exportExchangeExcelBtn = host.querySelector("#exportExchangeExcelBtn");
       const resetExchangeFilterBtn = host.querySelector("#resetExchangeFilterBtn");
+      const cleanupExchangeDuplicatesBtn = host.querySelector("#cleanupExchangeDuplicatesBtn");
       const exchangePeriodFilter = host.querySelector("#exchangePeriodFilter");
       const exchangeClientFilter = host.querySelector("#exchangeClientFilter");
       const exchangeStartDate = host.querySelector("#exchangeStartDate");
@@ -3336,6 +3338,28 @@
       const exchangeExportSelectedBtn = host.querySelector("#exchangeExportSelectedBtn");
 
       exportExchangeExcelBtn.addEventListener("click", exportTokenExchangesExcel);
+      if (cleanupExchangeDuplicatesBtn) {
+        cleanupExchangeDuplicatesBtn.addEventListener("click", async () => {
+          const beforeCount = Array.isArray(state.tokenExchanges) ? state.tokenExchanges.length : 0;
+          const changed = normalizeTokenExchangesInState();
+          const afterCount = Array.isArray(state.tokenExchanges) ? state.tokenExchanges.length : 0;
+          const removedCount = Math.max(0, beforeCount - afterCount);
+          if (!changed) {
+            alert("目前沒有可清理的重複兌換紀錄");
+            return;
+          }
+          log("清理重複兌換", `清除 ${removedCount} 筆重複資料`);
+          renderTokens();
+          if (isCloudSyncConfigured() && cloudHydrationReady) {
+            try {
+              setSyncStatus("同步中：回寫清理後資料...");
+              await pushCloudState();
+            } catch (err) {
+              console.warn("清理重複兌換後同步失敗", err);
+            }
+          }
+        });
+      }
       if (resetExchangeFilterBtn) {
         resetExchangeFilterBtn.addEventListener("click", () => {
           state.tokenExchangeFilter = {
