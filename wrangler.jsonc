@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "smart-care-sync-api",
+  "main": "cloudflare/worker.js",
+  "compatibility_date": "2026-07-26",
+  "workers_dev": true,
+  "preview_urls": true,
+  "kv_namespaces": [
+    {
+      "binding": "SMART_CARE_STATE",
+      "id": "8967f2f174fa4451b3637c934b981ec6"
+    }
+  ]
+}

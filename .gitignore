@@ -1,0 +1,16 @@
+# Local Cloudflare credentials
+.env.cloudflare
+.env.cloudflare.local
+
+# Local Netlify credentials
+.env.netlify
+.env.netlify.local
+
+# Wrangler local state
+.wrangler/
+
+# Node deps
+node_modules/
+
+# Local Netlify folder
+.netlify
