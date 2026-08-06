@@ -1261,6 +1261,87 @@
       return Array.from(map.values());
     }
 
+    function resolveTokenExchangeDay(row) {
+      const candidates = [
+        String(row && row.redeemDate || ""),
+        String(row && row.dateTime || "").slice(0, 10),
+        String(row && row.redeemedAtIso || "").slice(0, 10),
+        String(row && row.createdAtIso || "").slice(0, 10)
+      ];
+      for (const raw of candidates) {
+        const day = String(raw || "").trim().replace(/\//g, "-");
+        if (/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(day)) return day;
+      }
+      return "";
+    }
+
+    function buildTokenExchangeFingerprint(row) {
+      const client = String(row && row.clientName || "").trim();
+      const reward = String(row && (row.rewardId || row.rewardItem || row.item || row.rewardName) || "").trim();
+      const day = resolveTokenExchangeDay(row);
+      const cost = Number(row && row.cost || 0);
+      const content = String(row && row.content || "").trim();
+      return [client, reward, day, Number.isFinite(cost) ? cost : 0, content].join("|");
+    }
+
+    function normalizeTokenExchangesInState() {
+      if (!Array.isArray(state.tokenExchanges)) {
+        state.tokenExchanges = [];
+        return true;
+      }
+
+      const stamp = Date.now().toString(36);
+      let changed = false;
+      const seenIds = new Set();
+      const seenFingerprints = new Set();
+      const normalized = [];
+
+      state.tokenExchanges.forEach((row, index) => {
+        if (!row || typeof row !== "object") {
+          changed = true;
+          return;
+        }
+
+        const next = { ...row };
+        const rawId = next.id;
+        if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
+          next.id = `ex-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`;
+          changed = true;
+        } else if (typeof rawId !== "string") {
+          next.id = String(rawId);
+          changed = true;
+        }
+
+        const idKey = String(next.id);
+        const fingerprint = buildTokenExchangeFingerprint(next);
+        if (seenIds.has(idKey) || seenFingerprints.has(fingerprint)) {
+          changed = true;
+          return;
+        }
+
+        seenIds.add(idKey);
+        seenFingerprints.add(fingerprint);
+        normalized.push(next);
+      });
+
+      if (normalized.length !== state.tokenExchanges.length) changed = true;
+      if (changed) state.tokenExchanges = normalized;
+
+      if (state.selectedExchangeForEdit != null) {
+        const selected = String(state.selectedExchangeForEdit);
+        if (selected !== state.selectedExchangeForEdit) {
+          state.selectedExchangeForEdit = selected;
+          changed = true;
+        }
+        if (!state.tokenExchanges.some(x => String(x.id) === selected)) {
+          state.selectedExchangeForEdit = null;
+          changed = true;
+        }
+      }
+
+      return changed;
+    }
+
     function applyCloudPayload(remotePayload) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
       const localUpdatedAt = getLastSyncedAt(state._meta);
@@ -1274,6 +1355,7 @@
         if (!Array.isArray(value)) return;
         state[key] = value;
       });
+      const deduped = normalizeTokenExchangesInState();
       state._meta = {
         ...(state._meta || {}),
         ...(remotePayload._meta || {}),
@@ -1282,7 +1364,7 @@
         localDirtyAt: localDirtyAt > remoteUpdatedAt ? localDirtyAt : 0
       };
       const afterData = buildDataSnapshot(state);
-      return beforeData !== afterData;
+      return deduped || beforeData !== afterData;
     }
 
     async function fetchCloudStateSnapshot() {
@@ -1502,6 +1584,7 @@
         const parsed = JSON.parse(raw);
         if (!parsed || typeof parsed !== "object") return false;
         Object.assign(state, parsed);
+        normalizeTokenExchangesInState();
         state.role = normalizeRole(state.role);
         state.teachers = (Array.isArray(state.teachers) ? state.teachers : []).map(t => {
           if (!t) return null;
@@ -1533,6 +1616,7 @@
 
           isApplyingStorageState = true;
           Object.assign(state, parsed);
+          normalizeTokenExchangesInState();
           state.role = normalizeRole(localRole);
           state.currentOperator = localOperator;
           state.activeView = localActiveView;
@@ -2877,33 +2961,7 @@
 
     function renderTokens() {
       const host = document.getElementById("view-tokens");
-
-      // Normalize legacy/cloud records so bulk actions can reliably match rows.
-      const ensureTokenExchangeIds = () => {
-        if (!Array.isArray(state.tokenExchanges)) {
-          state.tokenExchanges = [];
-          return;
-        }
-        let changed = false;
-        const stamp = Date.now().toString(36);
-        state.tokenExchanges = state.tokenExchanges.map((row, index) => {
-          if (!row || typeof row !== "object") return row;
-          const next = { ...row };
-          const rawId = next.id;
-          if (rawId === undefined || rawId === null || String(rawId).trim() === "") {
-            next.id = `ex-${stamp}-${index}-${Math.random().toString(36).slice(2, 6)}`;
-            changed = true;
-          } else if (typeof rawId !== "string") {
-            next.id = String(rawId);
-            changed = true;
-          }
-          return next;
-        });
-        if (changed && state.selectedExchangeForEdit != null) {
-          state.selectedExchangeForEdit = String(state.selectedExchangeForEdit);
-        }
-      };
-      ensureTokenExchangeIds();
+      normalizeTokenExchangesInState();
 
       const scopedClients = getToolbarScopedClients({ respectSelectedClient: true });
       const scopedClientNames = new Set(scopedClients.map(c => c.name));
