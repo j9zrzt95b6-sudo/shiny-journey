@@ -36,10 +36,29 @@ function normalizeParsedPayload(raw) {
   }
 }
 
-async function loadStoredValue(env, kvKey, syncKey) {
+function resolveStorageBackend(env) {
   const d1 = env.DB || env.SMART_CARE_D1;
-  if (d1) {
-    const row = await d1.prepare(
+  const hasD1 = Boolean(d1);
+  const hasKv = Boolean(env.SMART_CARE_STATE);
+  const requireD1 = String(env.REQUIRE_D1 || "").trim() === "1";
+
+  if (hasD1) {
+    return { backend: "d1", reason: "d1_binding", d1 };
+  }
+  if (requireD1) {
+    throw new Error("D1 is required but no D1 binding found (expected DB or SMART_CARE_D1).");
+  }
+  if (hasKv) {
+    return { backend: "kv", reason: "missing_d1_binding", kv: env.SMART_CARE_STATE };
+  }
+
+  throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
+}
+
+async function loadStoredValue(env, kvKey, syncKey) {
+  const storage = resolveStorageBackend(env);
+  if (storage.backend === "d1") {
+    const row = await storage.d1.prepare(
       "SELECT payload, updated_at FROM sync_state WHERE sync_key = ?"
     ).bind(syncKey).first();
     const value = normalizeParsedPayload(row && row.payload);
@@ -50,53 +69,41 @@ async function loadStoredValue(env, kvKey, syncKey) {
         lastSyncedAt: Number(row && row.updated_at) || 0
       };
     }
-    return { value, backend: "d1" };
+    return { value, backend: "d1", reason: storage.reason };
   }
 
-  if (!env.SMART_CARE_STATE) {
-    throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
-  }
-
-  const raw = await env.SMART_CARE_STATE.get(kvKey);
-  return { value: normalizeParsedPayload(raw), backend: "kv" };
+  const raw = await storage.kv.get(kvKey);
+  return { value: normalizeParsedPayload(raw), backend: "kv", reason: storage.reason };
 }
 
 async function storeValue(env, kvKey, syncKey, payload, updatedAt) {
-  const d1 = env.DB || env.SMART_CARE_D1;
-  if (d1) {
-    await d1.prepare(
+  const storage = resolveStorageBackend(env);
+  if (storage.backend === "d1") {
+    await storage.d1.prepare(
       `INSERT INTO sync_state (sync_key, payload, updated_at)
        VALUES (?, ?, ?)
        ON CONFLICT(sync_key) DO UPDATE SET
          payload = excluded.payload,
          updated_at = excluded.updated_at`
     ).bind(syncKey, JSON.stringify(payload), updatedAt).run();
-    return "d1";
+    return { backend: "d1", reason: storage.reason };
   }
 
-  if (!env.SMART_CARE_STATE) {
-    throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
-  }
-
-  await env.SMART_CARE_STATE.put(kvKey, JSON.stringify(payload));
-  return "kv";
+  await storage.kv.put(kvKey, JSON.stringify(payload));
+  return { backend: "kv", reason: storage.reason };
 }
 
 async function deleteValue(env, kvKey, syncKey) {
-  const d1 = env.DB || env.SMART_CARE_D1;
-  if (d1) {
-    await d1.prepare(
+  const storage = resolveStorageBackend(env);
+  if (storage.backend === "d1") {
+    await storage.d1.prepare(
       "DELETE FROM sync_state WHERE sync_key = ?"
     ).bind(syncKey).run();
-    return "d1";
+    return { backend: "d1", reason: storage.reason };
   }
 
-  if (!env.SMART_CARE_STATE) {
-    throw new Error("No storage configured. Bind DB (or SMART_CARE_D1) or SMART_CARE_STATE.");
-  }
-
-  await env.SMART_CARE_STATE.delete(kvKey);
-  return "kv";
+  await storage.kv.delete(kvKey);
+  return { backend: "kv", reason: storage.reason };
 }
 
 export default {
@@ -111,16 +118,16 @@ export default {
       const kvKey = `smart-care:${syncKey}`;
 
       if (req.method === "GET") {
-        const { value, backend } = await loadStoredValue(env, kvKey, syncKey);
-        return json(200, { ok: true, value: value || null, storage: backend });
+        const { value, backend, reason } = await loadStoredValue(env, kvKey, syncKey);
+        return json(200, { ok: true, value: value || null, storage: backend, storageReason: reason });
       }
 
       if (req.method === "DELETE") {
         if (url.searchParams.get("confirm") !== "delete") {
           return json(400, { ok: false, error: "missing confirm=delete" });
         }
-        const backend = await deleteValue(env, kvKey, syncKey);
-        return json(200, { ok: true, deleted: true, storage: backend });
+        const result = await deleteValue(env, kvKey, syncKey);
+        return json(200, { ok: true, deleted: true, storage: result.backend, storageReason: result.reason });
       }
 
       if (req.method === "POST") {
@@ -155,10 +162,11 @@ export default {
           }
         };
 
-        const backend = await storeValue(env, kvKey, syncKey, nextBody, serverUpdatedAt);
+        const result = await storeValue(env, kvKey, syncKey, nextBody, serverUpdatedAt);
         return json(200, {
           ok: true,
-          storage: backend,
+          storage: result.backend,
+          storageReason: result.reason,
           updatedAt: serverUpdatedAt,
           acceptedClientUpdatedAt: incomingUpdatedAt || 0,
           previousServerUpdatedAt: existingUpdatedAt

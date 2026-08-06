@@ -1284,7 +1284,52 @@
       return [client, reward, day, Number.isFinite(cost) ? cost : 0, content].join("|");
     }
 
-    function normalizeTokenExchangesInState() {
+    function getExchangeCreatedAtMs(row) {
+      const createdIsoMs = Date.parse(String(row && row.createdAtIso || ""));
+      if (Number.isFinite(createdIsoMs) && createdIsoMs > 0) return createdIsoMs;
+      const dateTime = String(row && row.dateTime || "").trim();
+      if (!dateTime) return 0;
+      const parsedDateTimeMs = Date.parse(dateTime.replace(" ", "T"));
+      return Number.isFinite(parsedDateTimeMs) && parsedDateTimeMs > 0 ? parsedDateTimeMs : 0;
+    }
+
+    function findRecentSimilarExchange({ clientName, rewardId, rewardItem, exchangeDate, cost, content, windowMs = 2 * 60 * 1000 }) {
+      const nowMs = Date.now();
+      const normalizedClientName = String(clientName || "").trim();
+      const normalizedRewardId = String(rewardId || "").trim();
+      const normalizedRewardItem = String(rewardItem || "").trim();
+      const normalizedExchangeDate = String(exchangeDate || "").trim();
+      const normalizedContent = String(content || "").trim();
+      const normalizedCost = Number(cost || 0);
+
+      return state.tokenExchanges.find(row => {
+        if (!row || typeof row !== "object") return false;
+        if (row.isVoided) return false;
+
+        const rowCreatedAtMs = getExchangeCreatedAtMs(row);
+        if (!rowCreatedAtMs || nowMs - rowCreatedAtMs > windowMs) return false;
+
+        const rowClientName = String(row.clientName || "").trim();
+        if (rowClientName !== normalizedClientName) return false;
+
+        const rowRewardId = String(row.rewardId || "").trim();
+        const rowRewardItem = String(row.rewardItem || row.item || row.rewardName || "").trim();
+        const rewardMatched = (rowRewardId && rowRewardId === normalizedRewardId) || (!normalizedRewardId && rowRewardItem === normalizedRewardItem) || (normalizedRewardItem && rowRewardItem === normalizedRewardItem);
+        if (!rewardMatched) return false;
+
+        const rowExchangeDate = resolveTokenExchangeDay(row);
+        if (rowExchangeDate !== normalizedExchangeDate) return false;
+
+        const rowCost = Number(row.cost || 0);
+        if (!Number.isFinite(rowCost) || rowCost !== normalizedCost) return false;
+
+        const rowContent = String(row.content || "").trim();
+        return rowContent === normalizedContent;
+      }) || null;
+    }
+
+    function normalizeTokenExchangesInState(options = {}) {
+      const dedupeByFingerprint = Boolean(options && options.dedupeByFingerprint);
       if (!Array.isArray(state.tokenExchanges)) {
         state.tokenExchanges = [];
         return true;
@@ -1313,14 +1358,20 @@
         }
 
         const idKey = String(next.id);
-        const fingerprint = buildTokenExchangeFingerprint(next);
-        if (seenIds.has(idKey) || seenFingerprints.has(fingerprint)) {
+        if (seenIds.has(idKey)) {
           changed = true;
           return;
         }
 
         seenIds.add(idKey);
-        seenFingerprints.add(fingerprint);
+        if (dedupeByFingerprint) {
+          const fingerprint = buildTokenExchangeFingerprint(next);
+          if (seenFingerprints.has(fingerprint)) {
+            changed = true;
+            return;
+          }
+          seenFingerprints.add(fingerprint);
+        }
         normalized.push(next);
       });
 
@@ -3359,7 +3410,7 @@
       if (cleanupExchangeDuplicatesBtn) {
         cleanupExchangeDuplicatesBtn.addEventListener("click", async () => {
           const beforeCount = Array.isArray(state.tokenExchanges) ? state.tokenExchanges.length : 0;
-          const changed = normalizeTokenExchangesInState();
+          const changed = normalizeTokenExchangesInState({ dedupeByFingerprint: true });
           const afterCount = Array.isArray(state.tokenExchanges) ? state.tokenExchanges.length : 0;
           const removedCount = Math.max(0, beforeCount - afterCount);
           if (!changed) {
@@ -3467,6 +3518,20 @@
         const currentToken = tokenByClient[clientName] || 0;
         if (cost > currentToken) {
           const yes = confirm(`${clientName} 目前代幣 ${currentToken}，本次扣點 ${cost}，仍要兌換嗎？`);
+          if (!yes) return;
+        }
+
+        const recentSimilar = findRecentSimilarExchange({
+          clientName,
+          rewardId: reward.id,
+          rewardItem: reward.item,
+          exchangeDate,
+          cost,
+          content
+        });
+        if (recentSimilar) {
+          const recentAt = String(recentSimilar.dateTime || recentSimilar.createdAtIso || "剛剛");
+          const yes = confirm(`偵測到 2 分鐘內已有一筆相同兌換紀錄（${recentAt}）。\n若這是重複點擊，請按「取消」；若確定要再兌換一次，請按「確定」。`);
           if (!yes) return;
         }
 

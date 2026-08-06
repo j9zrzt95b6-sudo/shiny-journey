@@ -73,6 +73,22 @@ prefer_existing_secret() {
   fi
 }
 
+has_valid_cloudflare_credentials() {
+  local token_value="${CLOUDFLARE_API_TOKEN:-}"
+  local account_id_value="${CLOUDFLARE_ACCOUNT_ID:-}"
+
+  if [[ -z "$token_value" || -z "$account_id_value" ]]; then
+    return 1
+  fi
+  if looks_like_placeholder "$token_value" || looks_like_placeholder "$account_id_value"; then
+    return 1
+  fi
+  if printf '%s' "$token_value" | LC_ALL=C grep -q '[^ -~]'; then
+    return 1
+  fi
+  return 0
+}
+
 looks_like_placeholder() {
   local value="${1:-}"
   if [[ -z "$value" ]]; then
@@ -222,15 +238,21 @@ vlog "wrangler.toml preflight checks passed"
 # in new terminal sessions. Values already present in current env take precedence.
 ORIGINAL_CLOUDFLARE_API_TOKEN="${CLOUDFLARE_API_TOKEN:-}"
 ORIGINAL_CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-}"
+CURRENT_ENV_HAS_VALID_CREDS=false
 
-if [[ -f "$ENV_FILE" ]]; then
+if has_valid_cloudflare_credentials; then
+  CURRENT_ENV_HAS_VALID_CREDS=true
+  vlog "shell already has valid Cloudflare credentials; skipping env file reload"
+fi
+
+if [[ "$CURRENT_ENV_HAS_VALID_CREDS" == "false" && -f "$ENV_FILE" ]]; then
   vlog "loading env file: $ENV_FILE"
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
 fi
-if [[ -f "$ENV_LOCAL_FILE" ]]; then
+if [[ "$CURRENT_ENV_HAS_VALID_CREDS" == "false" && -f "$ENV_LOCAL_FILE" ]]; then
   vlog "loading env file: $ENV_LOCAL_FILE"
   set -a
   # shellcheck disable=SC1090
@@ -263,6 +285,9 @@ if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "
     warn "Cloudflare credentials are still placeholders or not set."
     if [[ "$TOKEN_HAS_NON_ASCII" == "true" ]]; then
       warn "CLOUDFLARE_API_TOKEN contains non-ASCII characters (usually from placeholder/demo text)."
+    fi
+    if [[ "$CURRENT_ENV_HAS_VALID_CREDS" == "true" ]]; then
+      warn "Shell credentials looked valid at startup, but the env file load replaced them."
     fi
     warn "Edit $ENV_FILE or $ENV_LOCAL_FILE and fill in real values before a real deploy."
     info "Dry run completed. No deployment was performed."
