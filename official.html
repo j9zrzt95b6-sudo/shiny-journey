@@ -8451,10 +8451,12 @@
             <p class="mini">清除系統預載的範例資料，並立即同步到雲端（不會影響非範例資料）。</p>
             <div class="actions">
               <button class="btn warn" type="button" id="reconcileRecordClassBtn">修復每日紀錄班級欄位</button>
+              <button class="btn warn" type="button" id="forceCloudResetBtn">強制以雲端覆蓋本機</button>
               <button class="btn danger" type="button" id="purgeDemoDataBtn">清除範例資料（本機 + 雲端）</button>
               <button class="btn" type="button" id="runQaSmokeBtn">執行 QA 快速驗收</button>
             </div>
             <div id="reconcileRecordClassResult" class="mini" style="margin-top:8px;"></div>
+            <div id="forceCloudResetResult" class="mini" style="margin-top:6px;"></div>
             <pre id="qaSmokeResult" class="mini" style="margin-top:8px;white-space:pre-wrap;"></pre>
           </div>
         </div>
@@ -8470,6 +8472,8 @@
       const copySyncLinkBtn = host.querySelector("#copySyncLinkBtn");
       const reconcileRecordClassBtn = host.querySelector("#reconcileRecordClassBtn");
       const reconcileRecordClassResult = host.querySelector("#reconcileRecordClassResult");
+      const forceCloudResetBtn = host.querySelector("#forceCloudResetBtn");
+      const forceCloudResetResult = host.querySelector("#forceCloudResetResult");
 
       if (classScopeLockForm) {
         classScopeLockForm.addEventListener("submit", e => {
@@ -8543,6 +8547,52 @@
               : `未發現需要修復的每日紀錄（${now}）`;
           }
           log("資料維護", `手動修復每日紀錄班級欄位：${fixedCount} 筆`);
+        });
+      }
+
+      if (forceCloudResetBtn) {
+        forceCloudResetBtn.addEventListener("click", async () => {
+          if (!isCloudSyncConfigured()) {
+            alert("尚未設定同步 API，無法執行雲端覆蓋本機");
+            return;
+          }
+          const confirmed = confirm("這會清除本機快取並以目前雲端資料覆蓋。是否繼續？");
+          if (!confirmed) return;
+
+          const originalText = forceCloudResetBtn.textContent;
+          forceCloudResetBtn.disabled = true;
+          forceCloudResetBtn.textContent = "執行中...";
+          setSyncStatus("同步中：強制以雲端覆蓋本機...");
+
+          try {
+            localStorage.removeItem(STORAGE_KEY);
+            const remoteValue = await fetchCloudStateSnapshot();
+            if (!remoteValue || typeof remoteValue !== "object") {
+              throw new Error("雲端目前無可用資料");
+            }
+            applyCloudPayload(remoteValue);
+            saveState();
+            fillFilters();
+            renderAll();
+            updateCloudSyncBadge();
+
+            const now = new Date().toLocaleString("zh-TW");
+            if (forceCloudResetResult) {
+              forceCloudResetResult.textContent = `已完成雲端覆蓋本機（${now}）`;
+            }
+            log("資料維護", "強制以雲端覆蓋本機：完成");
+            setSyncStatus(`雲端覆蓋完成（${nowClock()}）`);
+          } catch (err) {
+            const message = String(err && err.message ? err.message : err);
+            if (forceCloudResetResult) {
+              forceCloudResetResult.textContent = `雲端覆蓋失敗：${message}`;
+            }
+            setSyncStatus("雲端覆蓋失敗");
+            alert(`雲端覆蓋失敗：${message}`);
+          } finally {
+            forceCloudResetBtn.disabled = false;
+            forceCloudResetBtn.textContent = originalText;
+          }
         });
       }
 
