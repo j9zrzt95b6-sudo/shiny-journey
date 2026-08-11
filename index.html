@@ -616,7 +616,8 @@
       ],
       teachers: [
         { id: id(), name: "林老師", className: "生訓1班" },
-        { id: id(), name: "黃老師", className: "生訓2班" }
+        { id: id(), name: "黃老師", className: "生訓2班" },
+        { id: id(), name: "林政杰", className: "生訓5班" }
       ],
       clients: [
         {
@@ -1745,6 +1746,61 @@
       return String(name || "").trim();
     }
 
+    function normalizeClientName(name) {
+      return String(name || "").trim();
+    }
+
+    function toDateKey(value) {
+      const raw = String(value || "").trim();
+      if (!raw) return "";
+
+      let m = raw.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})$/);
+      if (!m && /^\d{8}$/.test(raw)) {
+        m = [raw, raw.slice(0, 4), raw.slice(4, 6), raw.slice(6, 8)];
+      }
+      if (!m) return "";
+
+      const year = Number(m[1]);
+      const month = Number(m[2]);
+      const day = Number(m[3]);
+      if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return "";
+      if (month < 1 || month > 12 || day < 1 || day > 31) return "";
+
+      return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    }
+
+    function parseDateOnly(value) {
+      const key = toDateKey(value);
+      if (!key) return null;
+      const [y, m, d] = key.split("-").map(Number);
+      const parsed = new Date(y, m - 1, d);
+      if (parsed.getFullYear() !== y || parsed.getMonth() !== m - 1 || parsed.getDate() !== d) return null;
+      return parsed;
+    }
+
+    function reconcileRecordClassNamesFromClients() {
+      const clientClassMap = new Map(
+        state.clients.map(c => [normalizeClientName(c.name), normalizeClientName(c.className)])
+      );
+      let updatedCount = 0;
+
+      state.records.forEach(rec => {
+        if (!rec || typeof rec !== "object") return;
+        const clientName = normalizeClientName(rec.clientName);
+        const classFromClient = clientClassMap.get(clientName);
+        if (!classFromClient) return;
+        if (normalizeClientName(rec.className) === classFromClient) return;
+        rec.className = classFromClient;
+        updatedCount += 1;
+      });
+
+      return updatedCount;
+    }
+
+    function sameClientName(a, b) {
+      return normalizeClientName(a) === normalizeClientName(b);
+    }
+
     function getTeacherClassByName(name) {
       const target = String(name || "").trim();
       if (!target) return "";
@@ -1762,8 +1818,8 @@
       }
       state.selectedClass = teacherClass;
       if (state.selectedClient !== "全部個案") {
-        const selected = state.clients.find(c => c.name === state.selectedClient);
-        if (!selected || selected.className !== teacherClass) {
+        const selected = state.clients.find(c => sameClientName(c.name, state.selectedClient));
+        if (!selected || normalizeClientName(selected.className) !== normalizeClientName(teacherClass)) {
           state.selectedClient = "全部個案";
         }
       }
@@ -1806,8 +1862,8 @@
         changed = true;
       }
       if (state.selectedClient !== "全部個案") {
-        const selected = state.clients.find(c => c.name === state.selectedClient);
-        if (!selected || selected.className !== lockedClass) {
+        const selected = state.clients.find(c => sameClientName(c.name, state.selectedClient));
+        if (!selected || normalizeClientName(selected.className) !== normalizeClientName(lockedClass)) {
           state.selectedClient = "全部個案";
           changed = true;
         }
@@ -1932,6 +1988,11 @@
           if (remoteValue && typeof remoteValue === "object") {
             applyCloudPayload(remoteValue);
           }
+        }
+        const fixedRecordClasses = reconcileRecordClassNamesFromClients();
+        if (fixedRecordClasses > 0) {
+          console.info(`已對齊 ${fixedRecordClasses} 筆每日紀錄班級欄位`);
+          saveState();
         }
         if (!state.logs) state.logs = [];
         wireStorageSync();
@@ -2123,7 +2184,7 @@
         renderAll();
       });
       document.getElementById("clientFilter").addEventListener("change", e => {
-        state.selectedClient = e.target.value;
+        state.selectedClient = normalizeClientName(e.target.value);
         renderAll();
       });
       document.getElementById("backupBtn").addEventListener("click", backupData);
@@ -2164,8 +2225,10 @@
           classFilter.innerHTML = [`<option>${teacherClass}</option>`].join("");
           classFilter.value = teacherClass;
         } else {
-          state.selectedClass = "全部班級";
-          classFilter.innerHTML = ["全部班級"].map(c => `<option>${c}</option>`).join("");
+          classFilter.innerHTML = ["全部班級", ...state.classes].map(c => `<option>${c}</option>`).join("");
+          if (!["全部班級", ...state.classes].includes(state.selectedClass)) {
+            state.selectedClass = "全部班級";
+          }
           classFilter.value = state.selectedClass;
         }
       } else {
@@ -2200,19 +2263,39 @@
     }
 
     function refillClientFilter() {
-      const options = getClientsByClassScope(state.selectedClass).map(c => c.name);
+      const options = getClientsByClassScope(state.selectedClass).map(c => normalizeClientName(c.name));
       const clientFilter = document.getElementById("clientFilter");
-      clientFilter.innerHTML = ["全部個案", ...options].map(c => `<option>${c}</option>`).join("");
-      if (!options.includes(state.selectedClient)) state.selectedClient = "全部個案";
-      clientFilter.value = state.selectedClient;
+      clientFilter.innerHTML = ["全部個案", ...options].map(c => `<option value="${c}">${c}</option>`).join("");
+      const selectedClientName = normalizeClientName(state.selectedClient);
+      if (selectedClientName !== "全部個案" && !options.includes(selectedClientName)) {
+        state.selectedClient = options[0] || "全部個案";
+      }
+      clientFilter.value = normalizeClientName(state.selectedClient);
+        function getRecordEmotionValue(row) {
+          if (!row || typeof row !== "object") return "";
+          return String(row.dailyEmotion || row.emotion || "").trim();
+        }
     }
 
     function getFilteredRecords() {
-      const scopedClientSet = new Set(getClientsByClassScope(state.selectedClass).map(c => c.name));
+      const scopedClients = getClientsByClassScope(state.selectedClass);
+      const scopedClientSet = new Set(scopedClients.map(c => normalizeClientName(c.name)));
+      const clientClassMap = new Map(
+        state.clients.map(c => [normalizeClientName(c.name), normalizeClientName(c.className)])
+      );
+
       return state.records.filter(r => {
-        if (!scopedClientSet.has(r.clientName)) return false;
-        const classOk = state.selectedClass === "全部班級" || r.className === state.selectedClass;
-        const clientOk = state.selectedClient === "全部個案" || r.clientName === state.selectedClient;
+        const normalizedClient = normalizeClientName(r.clientName);
+        if (!scopedClientSet.has(normalizedClient)) return false;
+
+        // Use client master data first so old records with stale className are still visible.
+        const classFromClient = clientClassMap.get(normalizedClient);
+        const normalizedRecordClass = normalizeClientName(r.className);
+        const classToCheck = classFromClient || normalizedRecordClass;
+        const classOk = state.selectedClass === "全部班級"
+          || !classToCheck
+          || classToCheck === normalizeClientName(state.selectedClass);
+        const clientOk = state.selectedClient === "全部個案" || sameClientName(r.clientName, state.selectedClient);
         return classOk && clientOk;
       });
     }
@@ -2729,16 +2812,20 @@
 
       const table = host.querySelector("#recordTable");
       const rows = getFilteredRecords().filter(r => {
-        const day = String(r.date || "");
-        if (!day) return true;
-        if (recordFilter.startDate && day < recordFilter.startDate) return false;
-        if (recordFilter.endDate && day > recordFilter.endDate) return false;
+        const dayKey = toDateKey(r.date);
+        if (!dayKey) return true;
+
+        const startKey = toDateKey(recordFilter.startDate);
+        const endKey = toDateKey(recordFilter.endDate);
+        if (startKey && dayKey < startKey) return false;
+        if (endKey && dayKey > endKey) return false;
         return true;
       });
       table.innerHTML = rows.map(r => `
         <tr>
           <td><input type="checkbox" data-record-select="${r.id}" aria-label="勾選每日紀錄 ${r.clientName} ${r.taskName}"></td>
           <td>${r.date}</td><td>${r.clientName}</td><td>${r.taskName}</td><td>${r.prompt}</td><td>${r.quality}</td>
+          <td><strong>${getRecordEmotionValue(r) || "-"}</strong></td>
           <td>${r.tokenAward} / -${r.tokenDeduct}</td>
           <td>${r.createdBy || "-"}</td>
           <td>
@@ -2777,6 +2864,7 @@
           提示: r.prompt,
           是否完成: r.completed ? "是" : "否",
           品質: r.quality,
+          當日情緒: getRecordEmotionValue(r),
           代幣給予: r.tokenAward,
           品質回扣: r.tokenDeduct,
           行為事件: r.behaviorEvent || "",
@@ -2914,6 +3002,8 @@
           quality: fd.get("quality"),
           tokenAward: Number(fd.get("tokenAward") || 0),
           tokenDeduct: Number(fd.get("tokenDeduct") || 0),
+          dailyEmotion: fd.get("dailyEmotion"),
+          emotion: fd.get("dailyEmotion"),
           behaviorEvent: fd.get("behaviorEvent"),
           handling: fd.get("handling"),
           result: fd.get("result"),
@@ -2941,6 +3031,8 @@
         rec.quality = fd.get("quality");
         rec.tokenAward = Number(fd.get("tokenAward") || 0);
         rec.tokenDeduct = Number(fd.get("tokenDeduct") || 0);
+        rec.dailyEmotion = fd.get("dailyEmotion");
+        rec.emotion = fd.get("dailyEmotion");
         rec.behaviorEvent = fd.get("behaviorEvent");
         rec.handling = fd.get("handling");
         rec.result = fd.get("result");
@@ -2974,6 +3066,7 @@
           form.elements["quality"].value = rec.quality;
           form.elements["tokenAward"].value = rec.tokenAward;
           form.elements["tokenDeduct"].value = rec.tokenDeduct;
+          form.elements["dailyEmotion"].value = getRecordEmotionValue(rec);
           form.elements["behaviorEvent"].value = rec.behaviorEvent;
           form.elements["handling"].value = rec.handling;
           form.elements["result"].value = rec.result;
@@ -3844,7 +3937,10 @@
       const c = state.clients.find(x => x.name === clientName);
       if (!c) return false;
       const className = getCurrentTeacherClass();
-      return !!className && c.className === className;
+      if (className) return c.className === className;
+      const selectedClass = String(state.selectedClass || "").trim();
+      if (selectedClass && selectedClass !== "全部班級") return c.className === selectedClass;
+      return true;
     }
 
     function canEditCareRecordByRole(row) {
@@ -3857,7 +3953,8 @@
 
     function getPermittedClientNames() {
       if (state.role !== "teacher") return state.clients.map(c => c.name);
-      const className = getCurrentTeacherClass();
+      const className = getCurrentTeacherClass() || (String(state.selectedClass || "").trim() !== "全部班級" ? String(state.selectedClass || "").trim() : "");
+      if (!className) return state.clients.map(c => c.name);
       return state.clients.filter(c => c.className === className).map(c => c.name);
     }
 
@@ -3867,11 +3964,11 @@
       const toolbarScopedNames = getToolbarScopedClients({ respectSelectedClient: true }).map(c => c.name);
       const scopedClients = toolbarScopedNames.filter(name => permittedClients.includes(name));
       const scopedClientSet = new Set(scopedClients);
-      const selectedEmotionClient = scopedClients.includes(state.selectedClient)
-        ? state.selectedClient
+      const selectedEmotionClient = scopedClients.some(name => sameClientName(name, state.selectedClient))
+        ? normalizeClientName(state.selectedClient)
         : (scopedClients[0] || "");
       const clientOptions = scopedClients.length
-        ? scopedClients.map(name => `<option ${name === selectedEmotionClient ? "selected" : ""}>${name}</option>`).join("")
+        ? scopedClients.map(name => `<option value="${normalizeClientName(name)}" ${sameClientName(name, selectedEmotionClient) ? "selected" : ""}>${normalizeClientName(name)}</option>`).join("")
         : "<option value=\"\">目前範圍沒有個案</option>";
       const serviceFilter = state.serviceFilter || { category: "全部", keyword: "", clientName: "全部個案" };
       const emotionBehaviorFilter = {
@@ -4890,11 +4987,11 @@
       const toolbarScopedNames = getToolbarScopedClients({ respectSelectedClient: true }).map(c => c.name);
       const scopedClients = toolbarScopedNames.filter(name => permittedClients.includes(name));
       const scopedClientSet = new Set(scopedClients);
-      const selectedIspClient = scopedClients.includes(state.selectedClient)
-        ? state.selectedClient
+      const selectedIspClient = scopedClients.some(name => sameClientName(name, state.selectedClient))
+        ? normalizeClientName(state.selectedClient)
         : (scopedClients[0] || "");
       const clientOptions = scopedClients.length
-        ? scopedClients.map(name => `<option ${name === selectedIspClient ? "selected" : ""}>${name}</option>`).join("")
+        ? scopedClients.map(name => `<option value="${normalizeClientName(name)}" ${sameClientName(name, selectedIspClient) ? "selected" : ""}>${normalizeClientName(name)}</option>`).join("")
         : "<option value=\"\">目前範圍沒有個案</option>";
       const byClient = state.isps.filter(i => scopedClientSet.has(i.clientName));
       const ispListFilterMode = state.ispListFilterMode || "全部";
@@ -6276,7 +6373,8 @@
 
     function inRange(dateStr, range) {
       if (!dateStr) return false;
-      const d = new Date(dateStr + "T00:00:00");
+      const d = parseDateOnly(dateStr);
+      if (!d) return false;
       return d >= range.start && d < range.end;
     }
 
@@ -7391,9 +7489,11 @@
             <h3>資料維護</h3>
             <p class="mini">清除系統預載的範例資料，並立即同步到雲端（不會影響非範例資料）。</p>
             <div class="actions">
+              <button class="btn warn" type="button" id="reconcileRecordClassBtn">修復每日紀錄班級欄位</button>
               <button class="btn danger" type="button" id="purgeDemoDataBtn">清除範例資料（本機 + 雲端）</button>
               <button class="btn" type="button" id="runQaSmokeBtn">執行 QA 快速驗收</button>
             </div>
+            <div id="reconcileRecordClassResult" class="mini" style="margin-top:8px;"></div>
             <pre id="qaSmokeResult" class="mini" style="margin-top:8px;white-space:pre-wrap;"></pre>
           </div>
         </div>
@@ -7407,6 +7507,8 @@
       const syncLinkForm = host.querySelector("#syncLinkForm");
       const syncLinkPreview = host.querySelector("#syncLinkPreview");
       const copySyncLinkBtn = host.querySelector("#copySyncLinkBtn");
+      const reconcileRecordClassBtn = host.querySelector("#reconcileRecordClassBtn");
+      const reconcileRecordClassResult = host.querySelector("#reconcileRecordClassResult");
 
       if (classScopeLockForm) {
         classScopeLockForm.addEventListener("submit", e => {
@@ -7472,6 +7574,20 @@
             }
           } catch {}
           prompt("請複製這個同步連結", link);
+        });
+      }
+
+      if (reconcileRecordClassBtn) {
+        reconcileRecordClassBtn.addEventListener("click", () => {
+          const fixedCount = reconcileRecordClassNamesFromClients();
+          if (fixedCount > 0) saveState();
+          if (reconcileRecordClassResult) {
+            const now = new Date().toLocaleString("zh-TW");
+            reconcileRecordClassResult.textContent = fixedCount > 0
+              ? `已修復 ${fixedCount} 筆每日紀錄班級欄位（${now}）`
+              : `未發現需要修復的每日紀錄（${now}）`;
+          }
+          log("資料維護", `手動修復每日紀錄班級欄位：${fixedCount} 筆`);
         });
       }
 
