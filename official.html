@@ -820,6 +820,33 @@
 
     let charts = {};
 
+    const APP_VERSION = "20260812-001";
+    const APP_VERSION_STORAGE = "smart-care-app-version-v1";
+
+    function ensureRuntimeVersionMarker() {
+      try {
+        const url = new URL(location.href);
+        const urlVersion = String(url.searchParams.get("v") || "").trim();
+        const storedVersion = String(localStorage.getItem(APP_VERSION_STORAGE) || "").trim();
+
+        if (urlVersion && urlVersion !== APP_VERSION) {
+          localStorage.setItem(APP_VERSION_STORAGE, urlVersion);
+          return;
+        }
+
+        if (!urlVersion || urlVersion !== APP_VERSION) {
+          url.searchParams.set("v", APP_VERSION);
+          history.replaceState(null, "", url.toString());
+        }
+
+        localStorage.setItem(APP_VERSION_STORAGE, APP_VERSION);
+      } catch (error) {
+        console.warn("版本標記初始化失敗", error);
+      }
+    }
+
+    ensureRuntimeVersionMarker();
+
     function ensureRuntimeFallbacks() {
       if (typeof window.Chart === "undefined") {
         window.Chart = function () {
@@ -1731,6 +1758,10 @@
     }
 
     function normalizeClientName(name) {
+      return String(name || "").trim();
+    }
+
+    function normalizeClassName(name) {
       return String(name || "").trim();
     }
 
@@ -6735,9 +6766,11 @@
         });
       }
       if (state.analysisLevel === "個人") {
+        const classScopedClients = getClientsByClass(state.selectedClass);
+        const globalScopedClients = getClientsByClass("全部班級");
         const targetClient = state.selectedClient !== "全部個案"
           ? state.selectedClient
-          : (state.clients[0] ? state.clients[0].name : "全部個案");
+          : (classScopedClients[0] || globalScopedClients[0] || "全部個案");
         keys.forEach(k => {
           const filter = state.chartFilters[k];
           if (force || filter.clientName === "全部個案" || !state.clients.some(x => x.name === filter.clientName)) {
@@ -6765,19 +6798,32 @@
 
     function getClientsByClass(className) {
       const lockedClass = getLockedClassName();
-      const effectiveClassName = (className === "全部班級" && isClassScopeLockActive() && lockedClass)
-        ? lockedClass
-        : className;
+      const normalizedClassName = normalizeClassName(className);
+      const normalizedLockedClass = normalizeClassName(lockedClass);
+      const effectiveClassName = (normalizedClassName === "全部班級" && isClassScopeLockActive() && normalizedLockedClass)
+        ? normalizedLockedClass
+        : normalizedClassName;
       return state.clients
-        .filter(c => (effectiveClassName === "全部班級" || c.className === effectiveClassName) && canAccessClientByRole(c.name))
+        .filter(c => {
+          const clientClass = normalizeClassName(c.className);
+          return (effectiveClassName === "全部班級" || clientClass === effectiveClassName) && canAccessClientByRole(c.name);
+        })
         .map(c => c.name);
     }
 
     function getRecordsByFilter(filter, level) {
       const f = normalizeFilterByLevel(filter, level);
       const now = new Date();
+      const normalizedFilterClass = normalizeClassName(f.className);
+      const clientClassMap = new Map(
+        state.clients.map(c => [normalizeClientName(c.name), normalizeClassName(c.className)])
+      );
       return state.records.filter(r => {
-        const classOk = f.className === "全部班級" || r.className === f.className;
+        const normalizedClient = normalizeClientName(r.clientName);
+        const classFromClient = clientClassMap.get(normalizedClient);
+        const classFromRecord = normalizeClassName(r.className);
+        const classToCheck = classFromClient || classFromRecord;
+        const classOk = normalizedFilterClass === "全部班級" || !classToCheck || classToCheck === normalizedFilterClass;
         const clientOk = f.clientName === "全部個案" || r.clientName === f.clientName;
         const taskOk = f.taskName === "全部工作" || r.taskName === f.taskName;
         if (!classOk || !clientOk || !taskOk) return false;
@@ -6809,14 +6855,16 @@
         }
       }
       if (level === "個人") {
+        const classScopedClients = getClientsByClass(f.className === "全部班級" ? state.selectedClass : f.className);
+        const globalScopedClients = getClientsByClass("全部班級");
+        const fallbackClient = classScopedClients[0] || globalScopedClients[0] || "全部個案";
         if (f.className === "全部班級") {
-          const client = state.selectedClient !== "全部個案" ? state.selectedClient : (state.clients[0] ? state.clients[0].name : "全部個案");
+          const client = state.selectedClient !== "全部個案" ? state.selectedClient : fallbackClient;
           const c = state.clients.find(x => x.name === client);
           if (c) f.className = c.className;
         }
         if (f.clientName === "全部個案") {
-          const list = getClientsByClass(f.className);
-          f.clientName = state.selectedClient !== "全部個案" ? state.selectedClient : (list[0] || "全部個案");
+          f.clientName = state.selectedClient !== "全部個案" ? state.selectedClient : fallbackClient;
         }
       }
       return f;
@@ -7507,9 +7555,16 @@
     }
 
     function buildClassTokenCompareChart(recs) {
+      const classScope = String(state.selectedClass || "全部班級").trim();
       const map = {};
-      state.classes.forEach(c => map[c] = 0);
-      recs.forEach(r => { map[r.className] = (map[r.className] || 0) + (r.tokenAward - r.tokenDeduct); });
+      const sourceClasses = classScope === "全部班級" ? state.classes : [classScope];
+      sourceClasses.forEach(c => map[c] = 0);
+      recs.forEach(r => {
+        const targetClass = String(r.className || "").trim();
+        if (!targetClass) return;
+        if (classScope !== "全部班級" && normalizeClassName(targetClass) !== normalizeClassName(classScope)) return;
+        map[targetClass] = (map[targetClass] || 0) + (r.tokenAward - r.tokenDeduct);
+      });
       const labels = Object.keys(map).slice(0, 5);
       const values = labels.map(l => map[l]);
       upsertChart(
@@ -7557,19 +7612,82 @@
     }
 
     function renderTeacherStats(recs) {
-      document.getElementById("teacherStatsBody").innerHTML = state.teachers.map(t => {
-        const list = recs.filter(r => r.className === t.className);
+      const scopeClass = String(state.selectedClass || "全部班級").trim();
+      const teachers = scopeClass === "全部班級"
+        ? state.teachers
+        : state.teachers.filter(t => normalizeClassName(t.className) === normalizeClassName(scopeClass));
+      document.getElementById("teacherStatsBody").innerHTML = teachers.map(t => {
+        const list = recs.filter(r => normalizeClassName(r.className) === normalizeClassName(t.className));
         return `<tr><td>${t.name}</td><td>${t.className}</td><td>${calcCompletionRate(list)}%</td></tr>`;
       }).join("");
     }
 
     function renderAiJudgement(recs) {
       const host = document.getElementById("aiJudgementList");
-      const clients = normalizeFilterByLevel(state.chartFilters.ai, state.analysisLevel).clientName === "全部個案"
-        ? state.clients.slice(0, 4).map(c => c.name)
-        : [normalizeFilterByLevel(state.chartFilters.ai, state.analysisLevel).clientName];
-      host.innerHTML = clients.map(name => {
-        const list = recs.filter(r => r.clientName === name);
+      if (!host) return;
+
+      const aiFilter = normalizeFilterByLevel(state.chartFilters.ai, state.analysisLevel);
+      const className = aiFilter.className === "全部班級"
+        ? (state.selectedClass !== "全部班級" ? state.selectedClass : (state.classes[0] || "全部班級"))
+        : aiFilter.className;
+
+      const forbiddenAiNames = new Set([
+        "徐培峯",
+        "徐培峰"
+      ].map(normalizeClientName));
+
+      const allowedClients = new Set(
+        getClientsByClass(className)
+          .filter(name => canAccessClientByRole(name))
+          .map(normalizeClientName)
+          .filter(name => !forbiddenAiNames.has(name))
+          .filter(name => {
+            const client = state.clients.find(c => sameClientName(c.name, name));
+            if (!client) return false;
+            return normalizeClassName(client.className) === normalizeClassName(className)
+              || className === "全部班級"
+              || normalizeClassName(className) === "全部班級";
+          })
+      );
+
+      const safeRecs = (Array.isArray(recs) ? recs : []).filter(r => {
+        const clientName = normalizeClientName(r.clientName);
+        if (!clientName || forbiddenAiNames.has(clientName)) return false;
+        if (!allowedClients.size) return false;
+        if (state.selectedClass !== "全部班級") {
+          const client = state.clients.find(c => sameClientName(c.name, clientName));
+          if (!client) return false;
+          return normalizeClassName(client.className) === normalizeClassName(state.selectedClass);
+        }
+        return allowedClients.has(clientName);
+      });
+
+      let candidateNames = [];
+      if (aiFilter.clientName !== "全部個案") {
+        const selected = normalizeClientName(aiFilter.clientName);
+        if (selected && !forbiddenAiNames.has(selected) && allowedClients.has(selected)) {
+          candidateNames = [selected];
+        }
+      } else {
+        candidateNames = Array.from(new Set(
+          safeRecs
+            .map(r => normalizeClientName(r.clientName))
+            .filter(Boolean)
+            .filter(name => allowedClients.has(name))
+        ));
+      }
+
+      const displayClients = candidateNames
+        .filter(name => name && !forbiddenAiNames.has(name) && allowedClients.has(name))
+        .slice(0, 4);
+
+      if (!displayClients.length) {
+        host.innerHTML = "<p class='muted'>目前篩選無可分析個案</p>";
+        return;
+      }
+
+      host.innerHTML = displayClients.map(name => {
+        const list = safeRecs.filter(r => sameClientName(r.clientName, name));
         const rate = calcCompletionRate(list);
         const bad = list.filter(r => r.quality === "不佳").length;
         let level = "stable";
@@ -7604,7 +7722,8 @@
         target = state.isps.filter(i => names.includes(i.clientName));
       }
       if (level === "個人") {
-        const n = state.selectedClient !== "全部個案" ? state.selectedClient : (state.clients[0] ? state.clients[0].name : "");
+        const scopedClients = getToolbarScopedClients({ respectSelectedClient: false });
+        const n = state.selectedClient !== "全部個案" ? state.selectedClient : (scopedClients[0] ? scopedClients[0].name : "");
         target = state.isps.filter(i => i.clientName === n);
       }
       if (!target.length) return 0;
