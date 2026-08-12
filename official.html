@@ -7635,12 +7635,15 @@
         "徐培峯",
         "徐培峰"
       ].map(normalizeClientName));
+      const selectedClassName = normalizeClassName(state.selectedClass || "全部班級");
+      const currentClassName = normalizeClassName(className || "全部班級");
+      const explicitClassScope = selectedClassName !== "全部班級" && currentClassName === selectedClassName;
 
       const allowedClients = new Set(
         getClientsByClass(className)
           .filter(name => canAccessClientByRole(name))
           .map(normalizeClientName)
-          .filter(name => !forbiddenAiNames.has(name))
+          .filter(name => explicitClassScope || !forbiddenAiNames.has(name))
           .filter(name => {
             const client = state.clients.find(c => sameClientName(c.name, name));
             if (!client) return false;
@@ -7652,8 +7655,9 @@
 
       const safeRecs = (Array.isArray(recs) ? recs : []).filter(r => {
         const clientName = normalizeClientName(r.clientName);
-        if (!clientName || forbiddenAiNames.has(clientName)) return false;
+        if (!clientName) return false;
         if (!allowedClients.size) return false;
+        if (!explicitClassScope && forbiddenAiNames.has(clientName)) return false;
         if (state.selectedClass !== "全部班級") {
           const client = state.clients.find(c => sameClientName(c.name, clientName));
           if (!client) return false;
@@ -7665,7 +7669,7 @@
       let candidateNames = [];
       if (aiFilter.clientName !== "全部個案") {
         const selected = normalizeClientName(aiFilter.clientName);
-        if (selected && !forbiddenAiNames.has(selected) && allowedClients.has(selected)) {
+        if (selected && (explicitClassScope || !forbiddenAiNames.has(selected)) && allowedClients.has(selected)) {
           candidateNames = [selected];
         }
       } else {
@@ -7678,7 +7682,7 @@
       }
 
       const displayClients = candidateNames
-        .filter(name => name && !forbiddenAiNames.has(name) && allowedClients.has(name))
+        .filter(name => name && (explicitClassScope || !forbiddenAiNames.has(name)) && allowedClients.has(name))
         .slice(0, 4);
 
       if (!displayClients.length) {
