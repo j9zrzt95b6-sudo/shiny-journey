@@ -1442,12 +1442,13 @@
       return changed;
     }
 
-    function applyCloudPayload(remotePayload) {
+    function applyCloudPayload(remotePayload, options = {}) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
+      const force = Boolean(options && options.force);
       const localUpdatedAt = getLastSyncedAt(state._meta);
       const localDirtyAt = Number(state._meta && state._meta.localDirtyAt || 0);
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
-      if (!(remoteUpdatedAt > localUpdatedAt)) return false;
+      if (!force && !(remoteUpdatedAt > localUpdatedAt)) return false;
 
       const beforeData = buildDataSnapshot(state);
       Object.entries(remotePayload).forEach(([key, value]) => {
@@ -1522,6 +1523,7 @@
       try {
         setSyncStatus("同步中：寫入雲端...");
         const payload = buildCloudPayload();
+        const payloadDirtyAt = Number(payload._meta && payload._meta.localDirtyAt || 0);
         const baseVersion = Number(payload._meta && (payload._meta.lastSyncedAt || payload._meta.updatedAt) || 0);
         payload._meta = {
           ...(payload._meta || {}),
@@ -1546,17 +1548,20 @@
         const result = await resp.json();
         const serverVersion = Number(result && result.updatedAt || 0);
         if (serverVersion > 0) {
+          const currentDirtyAt = Number(state._meta && state._meta.localDirtyAt || 0);
+          const hasChangesAfterPushStarted = currentDirtyAt > payloadDirtyAt;
           isApplyingCloudState = true;
           state._meta = {
             ...(state._meta || {}),
             updatedAt: serverVersion,
             lastSyncedAt: serverVersion,
             localUpdatedAt: Date.now(),
-            localDirtyAt: 0,
+            localDirtyAt: hasChangesAfterPushStarted ? currentDirtyAt : 0,
             deviceId: getDeviceId()
           };
           localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
           isApplyingCloudState = false;
+          if (hasChangesAfterPushStarted) queueCloudPush();
         }
         setSyncStatus(`已同步（${nowClock()}）`);
       } catch (err) {
@@ -1564,6 +1569,7 @@
         setSyncStatus("雲端寫入失敗");
       } finally {
         cloudPushInFlight = false;
+        if (hasPendingLocalChanges()) queueCloudPush();
       }
     }
 
@@ -2017,7 +2023,7 @@
         } else if (isCloudSyncConfigured()) {
           const remoteValue = await fetchCloudStateSnapshot();
           if (remoteValue && typeof remoteValue === "object") {
-            applyCloudPayload(remoteValue);
+            applyCloudPayload(remoteValue, { force: true });
           }
         }
         const fixedRecordClasses = reconcileRecordClassNamesFromClients();
