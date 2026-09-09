@@ -62,13 +62,13 @@ if [[ "$PUBLIC_ONLY" != "true" ]]; then
     exit 1
   fi
 
-  if [[ -f "$ENV_FILE" ]]; then
+  if [[ -f "$ENV_FILE" ]] && [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$ENV_FILE"
     set +a
   fi
-  if [[ -f "$ENV_LOCAL_FILE" ]]; then
+  if [[ -f "$ENV_LOCAL_FILE" ]] && [[ -z "${CLOUDFLARE_API_TOKEN:-}" || -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]]; then
     set -a
     # shellcheck disable=SC1090
     source "$ENV_LOCAL_FILE"

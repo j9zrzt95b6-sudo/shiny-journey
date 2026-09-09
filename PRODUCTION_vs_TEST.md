@@ -154,10 +154,10 @@
 🌐 一般訪問（建議）
 https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
-🌐 帶同步碼
+🌐 帶同步碼（同一正式網址）
 https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 
-🌐 帶自訂同步碼
+🌐 帶自訂同步碼（範例）
 https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=YOUR-SYNC-KEY&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate
 ```
 

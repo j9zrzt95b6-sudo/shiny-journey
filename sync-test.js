@@ -9,9 +9,8 @@
  *   例如：node sync-test.js --api https://my-worker.workers.dev/state --key test-sync-2026
  */
 
-const http = require('http');
-const https = require('https');
-const url = require('url');
+import http from 'node:http';
+import https from 'node:https';
 
 // 彩色輸出
 const colors = {

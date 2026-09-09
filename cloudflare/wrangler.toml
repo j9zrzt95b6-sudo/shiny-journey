@@ -1,5 +1,5 @@
 name = "smart-care-sync-api"
-main = "worker.js"
+main = "src/index.js"
 compatibility_date = "2024-09-23"
 
 [observability]
@@ -7,7 +7,7 @@ enabled = false
 
 [[d1_databases]]
 binding = "DB"
-database_name = "smart-care-sync"
+database_name = "smart-care-sync-api"
 database_id = "28fb3cae-c893-4c1e-ab32-7cebd8e25d8e"
 
 [[kv_namespaces]]

@@ -1454,7 +1454,9 @@
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
-        state[key] = value;
+        // Merge instead of overwrite so a stale/incomplete remote snapshot can never delete newer local records.
+        const localArr = Array.isArray(state[key]) ? state[key] : [];
+        state[key] = mergeArraysForCloud(localArr, value);
       });
       const deduped = normalizeTokenExchangesInState();
       state._meta = {
@@ -1517,11 +1519,74 @@
       }
     }
 
+    async function resolveCloudConflictAndRetry(localPayload) {
+      // 409 means another device pushed first; merge local pending edits into remote data instead of discarding them.
+      try {
+        setSyncStatus("偵測版本衝突，正在合併雲端與本機資料...");
+        const remoteValue = await fetchCloudStateSnapshot();
+        if (remoteValue && typeof remoteValue === "object") {
+          const beforeData = buildDataSnapshot(state);
+          const mergedKeys = new Set([
+            ...Object.keys(localPayload).filter(k => k !== "_meta"),
+            ...Object.keys(remoteValue).filter(k => k !== "_meta")
+          ]);
+          isApplyingCloudState = true;
+          mergedKeys.forEach(key => {
+            const localArr = Array.isArray(localPayload[key]) ? localPayload[key] : [];
+            const remoteArr = Array.isArray(remoteValue[key]) ? remoteValue[key] : [];
+            state[key] = mergeArraysForCloud(localArr, remoteArr);
+          });
+          normalizeTokenExchangesInState();
+          const remoteUpdatedAt = Number(remoteValue._meta && remoteValue._meta.updatedAt || 0);
+          state._meta = {
+            ...(state._meta || {}),
+            ...(remoteValue._meta || {}),
+            updatedAt: remoteUpdatedAt,
+            lastSyncedAt: remoteUpdatedAt,
+            localDirtyAt: Date.now(),
+            deviceId: getDeviceId()
+          };
+          isApplyingCloudState = false;
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+          const afterData = buildDataSnapshot(state);
+          if (beforeData !== afterData) renderAllSafely("版本衝突合併");
+        }
+        setSyncStatus("偵測版本衝突，已合併本機與雲端資料");
+      } catch (err) {
+        console.warn("版本衝突合併失敗", err);
+        setSyncStatus("版本衝突合併失敗");
+      } finally {
+        isApplyingCloudState = false;
+        queueCloudPush();
+      }
+    }
+
     async function pushCloudState() {
       if (cloudPushInFlight) return;
       cloudPushInFlight = true;
       try {
         setSyncStatus("同步中：寫入雲端...");
+        // Merge with the latest remote snapshot before sending so this push can never shrink
+        // data that other devices already saved (e.g. this device's local copy is stale).
+        const remoteBeforePush = await fetchCloudStateSnapshot();
+        if (remoteBeforePush && typeof remoteBeforePush === "object") {
+          const beforeMergeData = buildDataSnapshot(state);
+          const mergedKeys = new Set([
+            ...Object.keys(state).filter(k => k !== "_meta" && Array.isArray(state[k])),
+            ...Object.keys(remoteBeforePush).filter(k => k !== "_meta")
+          ]);
+          mergedKeys.forEach(key => {
+            const localArr = Array.isArray(state[key]) ? state[key] : [];
+            const remoteArr = Array.isArray(remoteBeforePush[key]) ? remoteBeforePush[key] : [];
+            state[key] = mergeArraysForCloud(localArr, remoteArr);
+          });
+          normalizeTokenExchangesInState();
+          if (buildDataSnapshot(state) !== beforeMergeData) {
+            isApplyingCloudState = true;
+            renderAllSafely("推送前合併雲端資料");
+            isApplyingCloudState = false;
+          }
+        }
         const payload = buildCloudPayload();
         const payloadDirtyAt = Number(payload._meta && payload._meta.localDirtyAt || 0);
         const baseVersion = Number(payload._meta && (payload._meta.lastSyncedAt || payload._meta.updatedAt) || 0);
@@ -1539,8 +1604,7 @@
         });
         if (!resp.ok) {
           if (resp.status === 409) {
-            await pullCloudState();
-            setSyncStatus("偵測版本衝突，已改用雲端最新資料");
+            await resolveCloudConflictAndRetry(payload);
             return;
           }
           throw new Error(`cloud write failed: ${resp.status}`);

@@ -120,8 +120,45 @@ Options:
   --config <path>   Use a custom Wrangler config path (relative paths resolve from the repo root).
   --env-file <path> Load Cloudflare credentials from a custom env file.
   --env-file-local <path> Load Cloudflare credentials from a second custom env file.
+  --no-prompt       Do not prompt for missing Cloudflare credentials.
   --help            Show this help message.
 EOF
+}
+
+NO_PROMPT=false
+
+prompt_for_cloudflare_credentials() {
+  if [[ "$NO_PROMPT" == "true" ]]; then
+    return 1
+  fi
+
+  if [[ ! -t 0 ]]; then
+    return 1
+  fi
+
+  echo
+  echo "Cloudflare credentials are missing or placeholders."
+  echo "Enter real values to continue this deploy (input is hidden)."
+
+  if [[ -z "${CLOUDFLARE_API_TOKEN:-}" ]] || looks_like_placeholder "${CLOUDFLARE_API_TOKEN:-}"; then
+    read -r -s -p "CLOUDFLARE_API_TOKEN: " input_token
+    echo
+    if [[ -n "$input_token" ]]; then
+      CLOUDFLARE_API_TOKEN="$input_token"
+      export CLOUDFLARE_API_TOKEN
+    fi
+  fi
+
+  if [[ -z "${CLOUDFLARE_ACCOUNT_ID:-}" ]] || looks_like_placeholder "${CLOUDFLARE_ACCOUNT_ID:-}"; then
+    read -r -s -p "CLOUDFLARE_ACCOUNT_ID: " input_account_id
+    echo
+    if [[ -n "$input_account_id" ]]; then
+      CLOUDFLARE_ACCOUNT_ID="$input_account_id"
+      export CLOUDFLARE_ACCOUNT_ID
+    fi
+  fi
+
+  has_valid_cloudflare_credentials
 }
 
 while [[ $# -gt 0 ]]; do
@@ -174,6 +211,10 @@ while [[ $# -gt 0 ]]; do
       fi
       ENV_LOCAL_FILE="$2"
       shift 2
+      ;;
+    --no-prompt)
+      NO_PROMPT=true
+      shift
       ;;
     --help|-h)
       usage
@@ -247,17 +288,37 @@ fi
 
 if [[ "$CURRENT_ENV_HAS_VALID_CREDS" == "false" && -f "$ENV_FILE" ]]; then
   vlog "loading env file: $ENV_FILE"
+  local_saved_token="${CLOUDFLARE_API_TOKEN:-}"
+  local_saved_account="${CLOUDFLARE_ACCOUNT_ID:-}"
   set -a
   # shellcheck disable=SC1090
   source "$ENV_FILE"
   set +a
+  if [[ -n "$local_saved_token" ]] && ! looks_like_placeholder "$local_saved_token"; then
+    CLOUDFLARE_API_TOKEN="$local_saved_token"
+    export CLOUDFLARE_API_TOKEN
+  fi
+  if [[ -n "$local_saved_account" ]] && ! looks_like_placeholder "$local_saved_account"; then
+    CLOUDFLARE_ACCOUNT_ID="$local_saved_account"
+    export CLOUDFLARE_ACCOUNT_ID
+  fi
 fi
 if [[ "$CURRENT_ENV_HAS_VALID_CREDS" == "false" && -f "$ENV_LOCAL_FILE" ]]; then
   vlog "loading env file: $ENV_LOCAL_FILE"
+  local_saved_token="${CLOUDFLARE_API_TOKEN:-}"
+  local_saved_account="${CLOUDFLARE_ACCOUNT_ID:-}"
   set -a
   # shellcheck disable=SC1090
   source "$ENV_LOCAL_FILE"
   set +a
+  if [[ -n "$local_saved_token" ]] && ! looks_like_placeholder "$local_saved_token"; then
+    CLOUDFLARE_API_TOKEN="$local_saved_token"
+    export CLOUDFLARE_API_TOKEN
+  fi
+  if [[ -n "$local_saved_account" ]] && ! looks_like_placeholder "$local_saved_account"; then
+    CLOUDFLARE_ACCOUNT_ID="$local_saved_account"
+    export CLOUDFLARE_ACCOUNT_ID
+  fi
 fi
 
 prefer_existing_secret "CLOUDFLARE_API_TOKEN" "$ORIGINAL_CLOUDFLARE_API_TOKEN"
@@ -278,6 +339,20 @@ ACCOUNT_ID_VALUE="${CLOUDFLARE_ACCOUNT_ID:-}"
 TOKEN_HAS_NON_ASCII=false
 if [[ -n "$TOKEN_VALUE" ]] && printf '%s' "$TOKEN_VALUE" | LC_ALL=C grep -q '[^ -~]'; then
   TOKEN_HAS_NON_ASCII=true
+fi
+
+if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "$TOKEN_VALUE" || looks_like_placeholder "$ACCOUNT_ID_VALUE"; then
+  if [[ "$DRY_RUN" != "true" ]]; then
+    if prompt_for_cloudflare_credentials; then
+      TOKEN_VALUE="${CLOUDFLARE_API_TOKEN:-}"
+      ACCOUNT_ID_VALUE="${CLOUDFLARE_ACCOUNT_ID:-}"
+      TOKEN_HAS_NON_ASCII=false
+      if [[ -n "$TOKEN_VALUE" ]] && printf '%s' "$TOKEN_VALUE" | LC_ALL=C grep -q '[^ -~]'; then
+        TOKEN_HAS_NON_ASCII=true
+      fi
+    fi
+  fi
+
 fi
 
 if [[ -z "$TOKEN_VALUE" || -z "$ACCOUNT_ID_VALUE" ]] || looks_like_placeholder "$TOKEN_VALUE" || looks_like_placeholder "$ACCOUNT_ID_VALUE"; then
