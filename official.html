@@ -1252,6 +1252,26 @@
       return payload;
     }
 
+    function getDemoClientNamesFromPayload(payload) {
+      const clients = Array.isArray(payload && payload.clients) ? payload.clients : [];
+      return new Set(clients.filter(isDemoClient).map(client => String(client.name || "").trim()).filter(Boolean));
+    }
+
+    function removePurgedDemoData(payload, demoClientNames) {
+      if (!demoClientNames || !demoClientNames.size) return payload;
+      const filtered = { ...payload };
+      Object.entries(filtered).forEach(([key, value]) => {
+        if (!Array.isArray(value)) return;
+        filtered[key] = value.filter(item => {
+          if (!item || typeof item !== "object") return true;
+          if (key === "clients" && isDemoClient(item)) return false;
+          const clientName = String(item.clientName || item.client_name || "").trim();
+          return !clientName || !demoClientNames.has(clientName);
+        });
+      });
+      return filtered;
+    }
+
     function getItemScore(item) {
       const candidates = [item && item.updatedAtIso, item && item.createdAtIso, item && item.updatedAt, item && item.createdAt];
       for (const value of candidates) {
@@ -1435,7 +1455,12 @@
       if (!force && !(remoteUpdatedAt > localUpdatedAt)) return false;
 
       const beforeData = buildDataSnapshot(state);
-      Object.entries(remotePayload).forEach(([key, value]) => {
+      const demoClientNames = new Set([
+        ...getDemoClientNamesFromPayload(remotePayload),
+        ...getDemoClientNamesFromPayload(state)
+      ]);
+      const payloadToApply = removePurgedDemoData(remotePayload, demoClientNames);
+      Object.entries(payloadToApply).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
         // Merge instead of overwrite so a stale/incomplete remote snapshot can never delete newer local records.
@@ -1554,14 +1579,19 @@
         // data that other devices already saved (e.g. this device's local copy is stale).
         const remoteBeforePush = await fetchCloudStateSnapshot();
         if (remoteBeforePush && typeof remoteBeforePush === "object") {
+          const demoClientNames = new Set([
+            ...getDemoClientNamesFromPayload(remoteBeforePush),
+            ...getDemoClientNamesFromPayload(state)
+          ]);
+          const remotePayload = removePurgedDemoData(remoteBeforePush, demoClientNames);
           const beforeMergeData = buildDataSnapshot(state);
           const mergedKeys = new Set([
             ...Object.keys(state).filter(k => k !== "_meta" && Array.isArray(state[k])),
-            ...Object.keys(remoteBeforePush).filter(k => k !== "_meta")
+            ...Object.keys(remotePayload).filter(k => k !== "_meta")
           ]);
           mergedKeys.forEach(key => {
             const localArr = Array.isArray(state[key]) ? state[key] : [];
-            const remoteArr = Array.isArray(remoteBeforePush[key]) ? remoteBeforePush[key] : [];
+            const remoteArr = Array.isArray(remotePayload[key]) ? remotePayload[key] : [];
             state[key] = mergeArraysForCloud(localArr, remoteArr);
           });
           normalizeTokenExchangesInState();
@@ -2050,6 +2080,15 @@
       return map[role].includes(permission);
     }
 
+    function shouldAllowDemoSeed() {
+      const host = String(location.hostname || "").toLowerCase();
+      const protocol = String(location.protocol || "").toLowerCase();
+      const isLocalHost = host === "localhost" || host === "127.0.0.1" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".github.dev") || /^\d+\.\d+\.\d+\.\d+$/.test(host);
+      const isLocalNetwork = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(host);
+      const isLocalPreview = protocol === "http:" && (isLocalHost || isLocalNetwork);
+      return !isCloudSyncConfigured() || isLocalPreview;
+    }
+
     async function init() {
       try {
         // Hide content until first full render to prevent flash
@@ -2063,10 +2102,10 @@
             const remoteValue = await fetchCloudStateSnapshot();
             if (remoteValue && typeof remoteValue === "object") {
               applyCloudPayload(remoteValue);
-            } else {
+            } else if (shouldAllowDemoSeed()) {
               ensureDemoRecords();
             }
-          } else {
+          } else if (shouldAllowDemoSeed()) {
             ensureDemoRecords();
           }
         } else if (isCloudSyncConfigured()) {
@@ -2100,6 +2139,7 @@
     }
 
     function ensureDemoRecords() {
+      if (isCloudSyncConfigured() && !shouldAllowDemoSeed()) return;
       if (state.records.length > 30) return;
       const clientNames = ["王小明", "王小華", "李○○", "陳○○", "林○○"];
       clientNames.forEach((name, idx) => {
@@ -9484,8 +9524,10 @@
           if (!item || typeof item !== "object") return true;
           const n1 = String(item.clientName || "").trim();
           const n2 = String(item.client_name || "").trim();
+          const n3 = String(item.name || "").trim();
           if (n1 && demoClientNames.has(n1)) return false;
           if (n2 && demoClientNames.has(n2)) return false;
+          if (n3 && demoClientNames.has(n3)) return false;
           return true;
         });
         removedRows += (before - state[key].length);
@@ -9493,6 +9535,15 @@
 
       if (demoClientNames.has(state.selectedClient)) state.selectedClient = "全部個案";
       if (demoClientNames.has(state.selectedIspForEdit)) state.selectedIspForEdit = null;
+      state._meta = {
+        ...(state._meta || {}),
+        demoDataPurgedAt: Date.now(),
+        updatedAt: Date.now(),
+        localUpdatedAt: Date.now(),
+        localDirtyAt: Date.now(),
+        deviceId: getDeviceId()
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 
       return {
         removedClients: beforeClients - state.clients.length,
@@ -9523,6 +9574,11 @@
           alert("未找到可清除的範例資料");
           return;
         }
+        state._meta = {
+          ...(state._meta || {}),
+          demoDataPurgedAt: Date.now()
+        };
+        saveState();
         log("清除範例資料", `個案 ${result.removedClients} 筆，關聯資料 ${result.removedRows} 筆`);
         renderAll();
         await pushCloudState();
