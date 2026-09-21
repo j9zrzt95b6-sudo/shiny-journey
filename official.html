@@ -1468,6 +1468,7 @@
         state[key] = replaceArrays ? value : mergeArraysForCloud(localArr, value);
       });
       const deduped = normalizeTokenExchangesInState();
+      const normalizedTeachers = normalizeTeachersInState();
       state._meta = {
         ...(state._meta || {}),
         ...(remotePayload._meta || {}),
@@ -1476,7 +1477,7 @@
         localDirtyAt: localDirtyAt > remoteUpdatedAt ? localDirtyAt : 0
       };
       const afterData = buildDataSnapshot(state);
-      return deduped || beforeData !== afterData;
+      return deduped || normalizedTeachers || beforeData !== afterData;
     }
 
     async function fetchCloudStateSnapshot() {
@@ -1779,6 +1780,7 @@
           const className = String(t.className || t.teacherClass || "").trim();
           return { ...t, id: t.id || id(), name, className };
         }).filter(Boolean);
+        normalizeTeachersInState();
         ensureClassScopeLockState();
         return true;
       } catch (err) {
@@ -1863,6 +1865,27 @@
 
     function normalizeClassName(name) {
       return String(name || "").trim();
+    }
+
+    function normalizeTeachersInState() {
+      const source = Array.isArray(state.teachers) ? state.teachers : [];
+      const seen = new Set();
+      const normalized = [];
+      source.forEach(teacher => {
+        if (!teacher || typeof teacher !== "object") return;
+        const name = normalizeOperatorName(teacher.name);
+        const className = normalizeClassName(teacher.className);
+        if (!name || !className) return;
+        const key = `${name}\u0000${className}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        normalized.push({ ...teacher, name, className });
+      });
+      const changed = normalized.length !== source.length || normalized.some((teacher, index) => {
+        return teacher !== source[index] || teacher.name !== source[index].name || teacher.className !== source[index].className;
+      });
+      if (changed) state.teachers = normalized;
+      return changed;
     }
 
     function toDateKey(value) {
