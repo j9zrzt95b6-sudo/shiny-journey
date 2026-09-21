@@ -2087,7 +2087,7 @@
         } else if (isCloudSyncConfigured()) {
           const remoteValue = await fetchCloudStateSnapshot();
           if (remoteValue && typeof remoteValue === "object") {
-            applyCloudPayload(remoteValue, { force: true });
+            applyCloudPayload(remoteValue, { force: true, replaceArrays: !hasPendingLocalChanges() });
           }
         }
         const fixedRecordClasses = reconcileRecordClassNamesFromClients();
