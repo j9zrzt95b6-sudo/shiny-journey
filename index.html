@@ -7963,6 +7963,10 @@
         return Array.from(teacherTable.querySelectorAll("[data-teacher-select]:checked")).map(cb => cb.dataset.teacherSelect);
       }
 
+      function getTeacherIdentity(teacher) {
+        return `${normalizeOperatorName(teacher && teacher.name)}\u0000${normalizeClassName(teacher && teacher.className)}`;
+      }
+
       function setAllTeacherSelection(checked) {
         teacherTable.querySelectorAll("[data-teacher-select]").forEach(cb => {
           cb.checked = checked;
@@ -8037,7 +8041,9 @@
         if (!state.selectedTeacherForEdit) return alert("請先管理一位教保員");
         const idx = state.teachers.findIndex(x => x.id === state.selectedTeacherForEdit);
         if (idx < 0) return;
-        const removed = state.teachers.splice(idx, 1)[0];
+        const removed = state.teachers[idx];
+        const identity = getTeacherIdentity(removed);
+        state.teachers = state.teachers.filter(teacher => getTeacherIdentity(teacher) !== identity);
         state.selectedTeacherForEdit = null;
         log("刪除教保員", removed.name);
         renderAll();
@@ -8052,8 +8058,13 @@
           if (!confirmed) return;
 
           const selectedSet = new Set(selectedIds);
+          const selectedIdentities = new Set(
+            state.teachers
+              .filter(teacher => selectedSet.has(String(teacher.id)))
+              .map(getTeacherIdentity)
+          );
           const before = state.teachers.length;
-          state.teachers = state.teachers.filter(t => !selectedSet.has(t.id));
+          state.teachers = state.teachers.filter(t => !selectedSet.has(String(t.id)) && !selectedIdentities.has(getTeacherIdentity(t)));
           const removedCount = before - state.teachers.length;
           if (!removedCount) return alert("沒有可刪除的勾選教保員");
           if (state.selectedTeacherForEdit && selectedSet.has(state.selectedTeacherForEdit)) {
