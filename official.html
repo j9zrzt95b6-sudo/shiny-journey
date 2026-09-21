@@ -1449,6 +1449,7 @@
     function applyCloudPayload(remotePayload, options = {}) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
       const force = Boolean(options && options.force);
+      const replaceArrays = Boolean(options && options.replaceArrays);
       const localUpdatedAt = getLastSyncedAt(state._meta);
       const localDirtyAt = Number(state._meta && state._meta.localDirtyAt || 0);
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
@@ -1463,9 +1464,8 @@
       Object.entries(payloadToApply).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
-        // Merge instead of overwrite so a stale/incomplete remote snapshot can never delete newer local records.
         const localArr = Array.isArray(state[key]) ? state[key] : [];
-        state[key] = mergeArraysForCloud(localArr, value);
+        state[key] = replaceArrays ? value : mergeArraysForCloud(localArr, value);
       });
       const deduped = normalizeTokenExchangesInState();
       state._meta = {
@@ -2114,7 +2114,7 @@
           if (isCloudSyncConfigured()) {
             const remoteValue = await fetchCloudStateSnapshot();
             if (remoteValue && typeof remoteValue === "object") {
-              applyCloudPayload(remoteValue);
+              applyCloudPayload(remoteValue, { replaceArrays: true });
             } else if (shouldAllowDemoSeed()) {
               ensureDemoRecords();
             }
@@ -2153,6 +2153,7 @@
 
     function ensureDemoRecords() {
       if (isCloudSyncConfigured() && !shouldAllowDemoSeed()) return;
+      if (state._meta && (state._meta.demoSeededAt || state._meta.demoDataPurgedAt)) return;
       if (state.records.length > 30) return;
       const clientNames = ["王小明", "王小華", "李○○", "陳○○", "林○○"];
       clientNames.forEach((name, idx) => {
@@ -2286,6 +2287,11 @@
           { id: id(), date: sDate(10), clientName: "王小華", category: "行為支持", title: "情緒調節練習", detail: "練習深呼吸後可在5分鐘內自我平復。", emotionSatisfaction: "😢 難過", satisfactionScore: 2, createdBy: "黃老師", createdAtIso: new Date().toISOString() }
         );
       }
+
+      state._meta = {
+        ...(state._meta || {}),
+        demoSeededAt: Date.now()
+      };
     }
 
     function renderNav() {

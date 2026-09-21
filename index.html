@@ -1445,6 +1445,7 @@
     function applyCloudPayload(remotePayload, options = {}) {
       if (!remotePayload || typeof remotePayload !== "object") return false;
       const force = Boolean(options && options.force);
+      const replaceArrays = Boolean(options && options.replaceArrays);
       const localUpdatedAt = getLastSyncedAt(state._meta);
       const localDirtyAt = Number(state._meta && state._meta.localDirtyAt || 0);
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
@@ -1454,9 +1455,8 @@
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
-        // Merge instead of overwrite so a stale/incomplete remote snapshot can never delete newer local records.
         const localArr = Array.isArray(state[key]) ? state[key] : [];
-        state[key] = mergeArraysForCloud(localArr, value);
+        state[key] = replaceArrays ? value : mergeArraysForCloud(localArr, value);
       });
       const deduped = normalizeTokenExchangesInState();
       state._meta = {
@@ -2077,7 +2077,7 @@
           if (isCloudSyncConfigured()) {
             const remoteValue = await fetchCloudStateSnapshot();
             if (remoteValue && typeof remoteValue === "object") {
-              applyCloudPayload(remoteValue);
+              applyCloudPayload(remoteValue, { replaceArrays: true });
             } else {
               ensureDemoRecords();
             }
@@ -2114,6 +2114,7 @@
     }
 
     function ensureDemoRecords() {
+      if (state._meta && (state._meta.demoSeededAt || state._meta.demoDataPurgedAt)) return;
       if (state.records.length > 30) return;
       const clientNames = ["王小明", "王小華", "李○○", "陳○○", "林○○"];
       clientNames.forEach((name, idx) => {
@@ -2234,6 +2235,11 @@
           createdAtIso: new Date().toISOString()
         });
       }
+
+      state._meta = {
+        ...(state._meta || {}),
+        demoSeededAt: Date.now()
+      };
     }
 
     function renderNav() {
