@@ -2061,9 +2061,22 @@
       return ownerName === getCurrentActor();
     }
 
-    function assertOwnerBeforeDelete(entity, label) {
+    function canDeleteByRole(entity) {
       const owner = entity && (entity.createdBy || entity.created_by);
       if (canManageOwner(owner)) return true;
+      if (normalizeRole(state.role) !== "teacher") return false;
+      const clientName = entity && (entity.clientName || entity.name);
+      return !!clientName && canAccessClientByRole(clientName);
+    }
+
+    function assertOwnerBeforeDelete(entity, label) {
+      const owner = entity && (entity.createdBy || entity.created_by);
+      if (canDeleteByRole(entity)) return true;
+      if (normalizeRole(state.role) === "teacher" && entity && (entity.clientName || entity.name)) {
+        alert(`無法刪除${label}：資料不在您負責的班級範圍內`);
+        log("拒絕刪除", `${label} 不在目前老師的班級範圍內`);
+        return false;
+      }
       alert(`無法刪除${label}：此資料建立者為 ${owner}`);
       log("拒絕刪除", `${label} 建立者:${owner}`);
       return false;
