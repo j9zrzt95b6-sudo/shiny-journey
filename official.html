@@ -1314,6 +1314,29 @@
       return Array.from(map.values());
     }
 
+    function mergeCloudArrayByKey(key, localArr, remoteArr) {
+      if (key === "teachers") return normalizeTeachersInStateArray(localArr);
+      return mergeArraysForCloud(localArr, remoteArr);
+    }
+
+    function normalizeTeachersInStateArray(source) {
+      const seen = new Set();
+      return (Array.isArray(source) ? source : []).filter(teacher => {
+        if (!teacher || typeof teacher !== "object") return false;
+        const name = normalizeOperatorName(teacher.name);
+        const className = normalizeClassName(teacher.className);
+        if (!name || !className) return false;
+        const key = `${name}\u0000${className}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      }).map(teacher => ({
+        ...teacher,
+        name: normalizeOperatorName(teacher.name),
+        className: normalizeClassName(teacher.className)
+      }));
+    }
+
     function resolveTokenExchangeDay(row) {
       const candidates = [
         String(row && row.redeemDate || ""),
@@ -1544,7 +1567,7 @@
           mergedKeys.forEach(key => {
             const localArr = Array.isArray(localPayload[key]) ? localPayload[key] : [];
             const remoteArr = Array.isArray(remoteValue[key]) ? remoteValue[key] : [];
-            state[key] = mergeArraysForCloud(localArr, remoteArr);
+            state[key] = mergeCloudArrayByKey(key, localArr, remoteArr);
           });
           normalizeTokenExchangesInState();
           const remoteUpdatedAt = Number(remoteValue._meta && remoteValue._meta.updatedAt || 0);
@@ -1593,7 +1616,7 @@
           mergedKeys.forEach(key => {
             const localArr = Array.isArray(state[key]) ? state[key] : [];
             const remoteArr = Array.isArray(remotePayload[key]) ? remotePayload[key] : [];
-            state[key] = mergeArraysForCloud(localArr, remoteArr);
+            state[key] = mergeCloudArrayByKey(key, localArr, remoteArr);
           });
           normalizeTokenExchangesInState();
           if (buildDataSnapshot(state) !== beforeMergeData) {
