@@ -1278,17 +1278,51 @@
       return 0;
     }
 
-    function mergeArraysForCloud(localArr, remoteArr) {
-      const local = Array.isArray(localArr) ? localArr : [];
-      const remote = Array.isArray(remoteArr) ? remoteArr : [];
-      if (!local.length) return remote;
-      if (!remote.length) return local;
+    function getDeletedRecordIds() {
+      return new Set(Array.isArray(state._meta && state._meta.deletedRecordIds)
+        ? state._meta.deletedRecordIds.map(value => String(value))
+        : []);
+    }
 
-      const allObject = [...local, ...remote].every(x => x && typeof x === "object" && !Array.isArray(x));
+    function absorbDeletedRecordIds(payload) {
+      const remoteIds = Array.isArray(payload && payload._meta && payload._meta.deletedRecordIds)
+        ? payload._meta.deletedRecordIds.map(value => String(value))
+        : [];
+      if (!remoteIds.length) return;
+      const deletedRecordIds = getDeletedRecordIds();
+      remoteIds.forEach(recordId => deletedRecordIds.add(recordId));
+      state._meta = { ...(state._meta || {}), deletedRecordIds: Array.from(deletedRecordIds) };
+    }
+
+    function markRecordDeleted(recordId) {
+      const deletedRecordIds = getDeletedRecordIds();
+      deletedRecordIds.add(String(recordId));
+      state._meta = {
+        ...(state._meta || {}),
+        deletedRecordIds: Array.from(deletedRecordIds),
+        localDirtyAt: Date.now(),
+        updatedAt: Date.now()
+      };
+    }
+
+    function filterDeletedRecords(records) {
+      const deletedRecordIds = getDeletedRecordIds();
+      if (!deletedRecordIds.size || !Array.isArray(records)) return records;
+      return records.filter(record => !deletedRecordIds.has(String(record && record.id || "")));
+    }
+
+    function mergeArraysForCloud(localArr, remoteArr, deletedRecordIds = null) {
+      const local = Array.isArray(localArr) ? localArr : [];
+      const remote = deletedRecordIds ? filterDeletedRecords(Array.isArray(remoteArr) ? remoteArr : []) : (Array.isArray(remoteArr) ? remoteArr : []);
+      const filteredLocal = deletedRecordIds ? filterDeletedRecords(local) : local;
+      if (!filteredLocal.length) return remote;
+      if (!remote.length) return filteredLocal;
+
+      const allObject = [...filteredLocal, ...remote].every(x => x && typeof x === "object" && !Array.isArray(x));
       if (!allObject) {
         const seen = new Set();
         const merged = [];
-        [...local, ...remote].forEach(item => {
+        [...filteredLocal, ...remote].forEach(item => {
           const key = JSON.stringify(item);
           if (seen.has(key)) return;
           seen.add(key);
@@ -1298,7 +1332,7 @@
       }
 
       const map = new Map();
-      [...local, ...remote].forEach(item => {
+      [...filteredLocal, ...remote].forEach(item => {
         const mapKey = String(item.id || "");
         if (!mapKey) {
           map.set(`${JSON.stringify(item)}-${map.size}`, item);
@@ -1312,7 +1346,7 @@
 
     function mergeCloudArrayByKey(key, localArr, remoteArr) {
       if (key === "teachers") return normalizeTeachersInStateArray(localArr);
-      return mergeArraysForCloud(localArr, remoteArr);
+      return mergeArraysForCloud(localArr, remoteArr, key === "records" ? getDeletedRecordIds() : null);
     }
 
     function normalizeTeachersInStateArray(source) {
@@ -1474,18 +1508,23 @@
       const remoteUpdatedAt = Number(remotePayload._meta && remotePayload._meta.updatedAt || 0);
       if (!force && !(remoteUpdatedAt > localUpdatedAt)) return false;
 
+      absorbDeletedRecordIds(remotePayload);
       const beforeData = buildDataSnapshot(state);
       Object.entries(remotePayload).forEach(([key, value]) => {
         if (key === "_meta") return;
         if (!Array.isArray(value)) return;
         const localArr = Array.isArray(state[key]) ? state[key] : [];
-        state[key] = replaceArrays ? value : mergeArraysForCloud(localArr, value);
+        state[key] = replaceArrays
+          ? (key === "records" ? filterDeletedRecords(value) : value)
+          : mergeArraysForCloud(localArr, value, key === "records" ? getDeletedRecordIds() : null);
       });
       const deduped = normalizeTokenExchangesInState();
       const normalizedTeachers = normalizeTeachersInState();
+      const deletedRecordIds = Array.from(getDeletedRecordIds());
       state._meta = {
         ...(state._meta || {}),
         ...(remotePayload._meta || {}),
+        deletedRecordIds,
         lastSyncedAt: Math.max(remoteUpdatedAt, localUpdatedAt),
         updatedAt: Math.max(remoteUpdatedAt, localUpdatedAt),
         localDirtyAt: localDirtyAt > remoteUpdatedAt ? localDirtyAt : 0
@@ -1549,6 +1588,7 @@
         setSyncStatus("偵測版本衝突，正在合併雲端與本機資料...");
         const remoteValue = await fetchCloudStateSnapshot();
         if (remoteValue && typeof remoteValue === "object") {
+          absorbDeletedRecordIds(remoteValue);
           const beforeData = buildDataSnapshot(state);
           const mergedKeys = new Set([
             ...Object.keys(localPayload).filter(k => k !== "_meta"),
@@ -1562,9 +1602,11 @@
           });
           normalizeTokenExchangesInState();
           const remoteUpdatedAt = Number(remoteValue._meta && remoteValue._meta.updatedAt || 0);
+          const deletedRecordIds = Array.from(getDeletedRecordIds());
           state._meta = {
             ...(state._meta || {}),
             ...(remoteValue._meta || {}),
+            deletedRecordIds,
             updatedAt: remoteUpdatedAt,
             lastSyncedAt: remoteUpdatedAt,
             localDirtyAt: Date.now(),
@@ -1594,6 +1636,7 @@
         // data that other devices already saved (e.g. this device's local copy is stale).
         const remoteBeforePush = await fetchCloudStateSnapshot();
         if (remoteBeforePush && typeof remoteBeforePush === "object") {
+          absorbDeletedRecordIds(remoteBeforePush);
           const beforeMergeData = buildDataSnapshot(state);
           const mergedKeys = new Set([
             ...Object.keys(state).filter(k => k !== "_meta" && Array.isArray(state[k])),
@@ -3123,6 +3166,7 @@
               denied += 1;
               return true;
             }
+            markRecordDeleted(rec.id);
             removedList.push(rec);
             return false;
           });
@@ -3199,6 +3243,7 @@
         if (idx < 0) return;
         if (!assertOwnerBeforeDelete(state.records[idx], "每日紀錄")) return;
         const removed = state.records.splice(idx, 1)[0];
+        markRecordDeleted(removed.id);
         state.selectedRecordForEdit = null;
         log("刪除每日紀錄", `${removed.clientName}/${removed.taskName}`);
         renderAll();
