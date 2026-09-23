@@ -1298,6 +1298,71 @@
       state._meta = { ...(state._meta || {}), deletedRecordIds: Array.from(deletedRecordIds) };
     }
 
+    function getDeletedCollectionIds(collectionKey, meta = state._meta) {
+      const deletedByCollection = meta && meta.deletedCollectionIds;
+      return new Set(Array.isArray(deletedByCollection && deletedByCollection[collectionKey])
+        ? deletedByCollection[collectionKey].map(value => String(value))
+        : []);
+    }
+
+    function absorbDeletedCollectionIds(payload) {
+      const remoteDeleted = payload && payload._meta && payload._meta.deletedCollectionIds;
+      if (!remoteDeleted || typeof remoteDeleted !== "object") return;
+      const deletedCollectionIds = { ...((state._meta && state._meta.deletedCollectionIds) || {}) };
+      Object.entries(remoteDeleted).forEach(([collectionKey, values]) => {
+        if (!Array.isArray(values)) return;
+        const merged = getDeletedCollectionIds(collectionKey);
+        values.forEach(value => merged.add(String(value)));
+        deletedCollectionIds[collectionKey] = Array.from(merged);
+      });
+      state._meta = { ...(state._meta || {}), deletedCollectionIds };
+    }
+
+    function markCollectionItemDeleted(collectionKey, itemId) {
+      const deletedCollectionIds = { ...((state._meta && state._meta.deletedCollectionIds) || {}) };
+      const deletedIds = getDeletedCollectionIds(collectionKey);
+      deletedIds.add(String(itemId));
+      deletedCollectionIds[collectionKey] = Array.from(deletedIds);
+      state._meta = {
+        ...(state._meta || {}),
+        deletedCollectionIds,
+        localDirtyAt: Date.now(),
+        updatedAt: Date.now()
+      };
+    }
+
+    function getCollectionItemKey(item) {
+      if (item && typeof item === "object") return String(item.id || "");
+      return String(item || "");
+    }
+
+    function recordDeletedCollectionDiff(previousState) {
+      if (!previousState || typeof previousState !== "object") return;
+      const deletedCollectionIds = { ...((state._meta && state._meta.deletedCollectionIds) || {}) };
+      let changed = false;
+      Object.entries(previousState).forEach(([collectionKey, previousItems]) => {
+        if (!Array.isArray(previousItems) || !Array.isArray(state[collectionKey])) return;
+        const currentKeys = new Set(state[collectionKey].map(getCollectionItemKey).filter(Boolean));
+        const deletedKeys = getDeletedCollectionIds(collectionKey);
+        let collectionChanged = false;
+        previousItems.forEach(item => {
+          const itemKey = getCollectionItemKey(item);
+          if (!itemKey || currentKeys.has(itemKey) || deletedKeys.has(itemKey)) return;
+          deletedKeys.add(itemKey);
+          changed = true;
+          collectionChanged = true;
+        });
+        if (collectionChanged) deletedCollectionIds[collectionKey] = Array.from(deletedKeys);
+      });
+      if (changed) state._meta = { ...(state._meta || {}), deletedCollectionIds };
+    }
+
+    function filterDeletedCollectionItems(collectionKey, items, meta = state._meta) {
+      const deletedIds = getDeletedCollectionIds(collectionKey, meta);
+      if (!deletedIds.size || !Array.isArray(items)) return items;
+      return items.filter(item => !deletedIds.has(getCollectionItemKey(item)));
+    }
+
     function markRecordDeleted(recordId) {
       const deletedRecordIds = getDeletedRecordIds();
       deletedRecordIds.add(String(recordId));
@@ -1309,16 +1374,19 @@
       };
     }
 
+    function filterDeletedItems(items, deletedIds) {
+      if (!deletedIds || !deletedIds.size || !Array.isArray(items)) return items;
+      return items.filter(item => !deletedIds.has(getCollectionItemKey(item)));
+    }
+
     function filterDeletedRecords(records) {
-      const deletedRecordIds = getDeletedRecordIds();
-      if (!deletedRecordIds.size || !Array.isArray(records)) return records;
-      return records.filter(record => !deletedRecordIds.has(String(record && record.id || "")));
+      return filterDeletedItems(records, getDeletedRecordIds());
     }
 
     function mergeArraysForCloud(localArr, remoteArr, deletedRecordIds = null) {
       const local = Array.isArray(localArr) ? localArr : [];
-      const remote = deletedRecordIds ? filterDeletedRecords(Array.isArray(remoteArr) ? remoteArr : []) : (Array.isArray(remoteArr) ? remoteArr : []);
-      const filteredLocal = deletedRecordIds ? filterDeletedRecords(local) : local;
+      const remote = deletedRecordIds ? filterDeletedItems(Array.isArray(remoteArr) ? remoteArr : [], deletedRecordIds) : (Array.isArray(remoteArr) ? remoteArr : []);
+      const filteredLocal = deletedRecordIds ? filterDeletedItems(local, deletedRecordIds) : local;
       if (!filteredLocal.length) return remote;
       if (!remote.length) return filteredLocal;
 
@@ -1350,7 +1418,10 @@
 
     function mergeCloudArrayByKey(key, localArr, remoteArr) {
       if (key === "teachers") return normalizeTeachersInStateArray(localArr);
-      return mergeArraysForCloud(localArr, remoteArr, key === "records" ? getDeletedRecordIds() : null);
+      const deletedIds = key === "records"
+        ? getDeletedRecordIds()
+        : getDeletedCollectionIds(key);
+      return mergeArraysForCloud(localArr, remoteArr, deletedIds);
     }
 
     function normalizeTeachersInStateArray(source) {
@@ -1513,6 +1584,7 @@
       if (!force && !(remoteUpdatedAt > localUpdatedAt)) return false;
 
       absorbDeletedRecordIds(remotePayload);
+      absorbDeletedCollectionIds(remotePayload);
       const beforeData = buildDataSnapshot(state);
       const demoClientNames = new Set([
         ...getDemoClientNamesFromPayload(remotePayload),
@@ -1524,8 +1596,8 @@
         if (!Array.isArray(value)) return;
         const localArr = Array.isArray(state[key]) ? state[key] : [];
         state[key] = replaceArrays
-          ? (key === "records" ? filterDeletedRecords(value) : value)
-          : mergeArraysForCloud(localArr, value, key === "records" ? getDeletedRecordIds() : null);
+          ? (key === "records" ? filterDeletedRecords(value) : filterDeletedCollectionItems(key, value))
+          : mergeCloudArrayByKey(key, localArr, value);
       });
       const deduped = normalizeTokenExchangesInState();
       const normalizedTeachers = normalizeTeachersInState();
@@ -1534,6 +1606,7 @@
         ...(state._meta || {}),
         ...(remotePayload._meta || {}),
         deletedRecordIds,
+        deletedCollectionIds: (state._meta && state._meta.deletedCollectionIds) || {},
         lastSyncedAt: Math.max(remoteUpdatedAt, localUpdatedAt),
         updatedAt: Math.max(remoteUpdatedAt, localUpdatedAt),
         localDirtyAt: localDirtyAt > remoteUpdatedAt ? localDirtyAt : 0
@@ -1598,6 +1671,7 @@
         const remoteValue = await fetchCloudStateSnapshot();
         if (remoteValue && typeof remoteValue === "object") {
           absorbDeletedRecordIds(remoteValue);
+          absorbDeletedCollectionIds(remoteValue);
           const beforeData = buildDataSnapshot(state);
           const mergedKeys = new Set([
             ...Object.keys(localPayload).filter(k => k !== "_meta"),
@@ -1616,6 +1690,7 @@
             ...(state._meta || {}),
             ...(remoteValue._meta || {}),
             deletedRecordIds,
+            deletedCollectionIds: (state._meta && state._meta.deletedCollectionIds) || {},
             updatedAt: remoteUpdatedAt,
             lastSyncedAt: remoteUpdatedAt,
             localDirtyAt: Date.now(),
@@ -1651,6 +1726,7 @@
           ]);
           const remotePayload = removePurgedDemoData(remoteBeforePush, demoClientNames);
           absorbDeletedRecordIds(remotePayload);
+          absorbDeletedCollectionIds(remotePayload);
           const beforeMergeData = buildDataSnapshot(state);
           const mergedKeys = new Set([
             ...Object.keys(state).filter(k => k !== "_meta" && Array.isArray(state[k])),
@@ -1817,7 +1893,12 @@
         if (before === baseline) return;
 
         const canMarkCloudMeta = !isApplyingCloudState && !isApplyingStorageState && (!isCloudSyncConfigured() || cloudHydrationReady);
-        if (canMarkCloudMeta) updateSyncMeta();
+        if (canMarkCloudMeta) {
+          let previousState = null;
+          try { previousState = before ? JSON.parse(before) : null; } catch { /* ignore malformed legacy state */ }
+          recordDeletedCollectionDiff(previousState);
+          updateSyncMeta();
+        }
         const serialized = JSON.stringify(state);
         if (before === serialized) return;
 
@@ -3697,6 +3778,7 @@
         if (idx < 0) return;
         if (!assertOwnerBeforeDelete(state.tokenShops[idx], "獎勵")) return;
         const removed = state.tokenShops.splice(idx, 1)[0];
+          markCollectionItemDeleted("tokenShops", removed.id);
         state.selectedRewardForEdit = null;
         log("刪除獎勵", removed.item);
         renderTokens();
@@ -3954,6 +4036,7 @@
           if (idx < 0) return;
           if (!assertOwnerBeforeDelete(state.tokenExchanges[idx], "兌換紀錄")) return;
           const removed = state.tokenExchanges.splice(idx, 1)[0];
+          markCollectionItemDeleted("tokenExchanges", removed.id);
           state.selectedExchangeForEdit = null;
           log("刪除兌換紀錄", `${removed.clientName || "-"} / ${removed.rewardItem || "-"}`);
           renderTokens();
@@ -4017,6 +4100,7 @@
               return true;
             }
             removed.push(row);
+            markCollectionItemDeleted("tokenExchanges", row.id);
             return false;
           });
           if (!removed.length) return alert("沒有可刪除的勾選兌換紀錄");
