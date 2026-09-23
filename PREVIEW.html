@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>變更預覽 - Smart Care 情感滿意度分析功能</title>
+  <style>
+    :root {
+      --bg: #f4f7f9;
+      --panel: #ffffff;
+      --text: #1f2b3d;
+      --muted: #5f6b7a;
+      --line: #dde4ec;
+      --brand: #0a7e8c;
+      --brand-2: #16a34a;
+      --warn: #dc6803;
+      --danger: #c5221f;
+      --radius: 14px;
+      --shadow: 0 8px 30px rgba(10, 20, 40, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+      font-family: "Noto Sans TC", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      padding: 20px;
+    }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .card {
+      background: var(--panel);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 20px;
+      box-shadow: var(--shadow);
+    }
+
+    .card h3 {
+      margin-top: 0;
+      color: var(--brand);
+      border-bottom: 2px solid var(--line);
+      padding-bottom: 10px;
+    }
+
+    .card h4 {
+      margin-top: 15px;
+      color: var(--text);
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin-bottom: 15px;
+    }
+
+    .field {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .field label {
+      font-weight: 500;
+      margin-bottom: 5px;
+      color: var(--text);
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-family: inherit;
+      font-size: 14px;
+    }
+
+    .field textarea {
+      resize: vertical;
+      min-height: 80px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 15px;
+      margin: 20px 0;
+    }
+
+    .card-metric {
+      background: linear-gradient(135deg, #f5f7fa 0%, #f9fbfc 100%);
+      padding: 15px;
+      border-radius: 10px;
+      text-align: center;
+      border-left: 4px solid var(--brand);
+    }
+
+    .card-metric .muted {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 8px;
+    }
+
+    .metric {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--brand);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 15px;
+    }
+
+    table th,
+    table td {
+      padding: 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--line);
+    }
+
+    table th {
+      background: linear-gradient(135deg, #f0f4f8 0%, #f5f9fc 100%);
+      font-weight: 600;
+      color: var(--brand);
+    }
+
+    table tbody tr:hover {
+      background: #f9fbfc;
+    }
+
+    .btn {
+      padding: 10px 16px;
+      border: none;
+      border-radius: 8px;
+      font-weight: 500;
+      cursor: pointer;
+      font-size: 14px;
+      transition: all 0.3s;
+      margin-right: 8px;
+      margin-bottom: 8px;
+    }
+
+    .btn.primary {
+      background: var(--brand);
+      color: white;
+    }
+
+    .btn.primary:hover {
+      background: #085a68;
+    }
+
+    .btn.good {
+      background: var(--brand-2);
+      color: white;
+    }
+
+    .btn.good:hover {
+      background: #128c2c;
+    }
+
+    .btn.warn {
+      background: var(--warn);
+      color: white;
+    }
+
+    .btn.warn:hover {
+      background: #b34f00;
+    }
+
+    .btn.danger {
+      background: var(--danger);
+      color: white;
+    }
+
+    .btn.danger:hover {
+      background: #9a1a17;
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin: 15px 0;
+    }
+
+    .highlight {
+      background: #fffacd;
+      border: 2px solid #ffd700;
+      border-radius: 8px;
+      padding: 15px;
+      margin: 15px 0;
+      color: #333;
+    }
+
+    .highlight h4 {
+      margin-top: 0;
+      color: #ff8c00;
+    }
+
+    .badge {
+      display: inline-block;
+      background: #fff3cd;
+      color: #856404;
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-right: 8px;
+    }
+
+    .badge.new {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    h1 {
+      color: var(--brand);
+      margin-bottom: 30px;
+    }
+
+    .section-title {
+      color: var(--brand);
+      font-size: 20px;
+      font-weight: 600;
+      margin-top: 30px;
+      margin-bottom: 15px;
+    }
+
+    .mini {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎉 Smart Care 平台 - 情感滿意度分析功能變更預覽</h1>
+
+    <div class="highlight">
+      <h4>✨ 變更概覽</h4>
+      <p>本更新為 Smart Care 平台添加了完整的情感滿意度分析功能，將情感行為字段融入每日服務紀錄，並提供基於情感數據的成果分析。</p>
+    </div>
+
+    <!-- 變更 1: 服務紀錄表單 -->
+    <div class="section-title">📝 變更 1：個案服務紀錄表單</div>
+    <div class="card">
+      <h3>個案服務紀錄（含情感滿意度分析）<span class="badge new">NEW</span></h3>
+      
+      <div class="grid-4" style="margin-bottom: 20px;">
+        <div class="field">
+          <label>日期</label>
+          <input type="date" value="2026-08-05" />
+        </div>
+        <div class="field">
+          <label>個案</label>
+          <select>
+            <option>小明</option>
+            <option>小紅</option>
+            <option>小華</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>分類</label>
+          <select>
+            <option>新技能</option>
+            <option>社交互動</option>
+            <option>身體狀況</option>
+          </select>
+        </div>
+        <div class="field">
+          <label>重點</label>
+          <input type="text" placeholder="例如：新增洗手獨立步驟" value="獨立使用廁所" />
+        </div>
+
+        <div class="field" style="border-left: 3px solid var(--brand-2); padding-left: 10px;">
+          <label><span class="badge new">新增</span> 情感滿意度</label>
+          <select>
+            <option>😀 愉快</option>
+            <option selected>😐 平穩</option>
+            <option>😢 難過</option>
+            <option>😡 生氣</option>
+            <option>😰 焦慮</option>
+          </select>
+        </div>
+
+        <div class="field" style="border-left: 3px solid var(--brand-2); padding-left: 10px;">
+          <label><span class="badge new">新增</span> 滿意度評分（1~5）</label>
+          <input type="number" min="1" max="5" value="5" />
+        </div>
+      </div>
+
+      <div class="field" style="grid-column: 1 / -1;">
+        <label>內容</label>
+        <textarea placeholder="可記錄新技能、社交互動、身體狀況、用藥提醒、家長聯繫、外出活動、特殊觀察">今天小明在教保員的引導下成功獨立上廁所，顯示出較強的自信心和進步。全程自主完成洗手步驟。</textarea>
+      </div>
+
+      <div class="actions">
+        <button class="btn primary">新增服務紀錄</button>
+        <button class="btn warn">更新</button>
+        <button class="btn danger">刪除</button>
+      </div>
+    </div>
+
+    <!-- 變更 2: 服務紀錄表格 -->
+    <div class="section-title">📊 變更 2：服務紀錄表格新增列</div>
+    <div class="card">
+      <h3>服務紀錄列表</h3>
+      
+      <table>
+        <thead>
+          <tr>
+            <th><input type="checkbox" /></th>
+            <th>日期</th>
+            <th>個案</th>
+            <th>分類</th>
+            <th>重點</th>
+            <th style="background-color: #d1ecf1;">情感滿意度 <span class="badge new" style="margin-left: 8px;">新增</span></th>
+            <th style="background-color: #d1ecf1;">評分 <span class="badge new" style="margin-left: 8px;">新增</span></th>
+            <th>內容</th>
+            <th>建立者</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><input type="checkbox" checked /></td>
+            <td>2026-08-05</td>
+            <td>小明</td>
+            <td>新技能</td>
+            <td>獨立進餐</td>
+            <td><strong>😀 愉快</strong></td>
+            <td><strong>★★★★★</strong></td>
+            <td>表現優異</td>
+            <td>教保員A</td>
+            <td><button class="btn" style="padding: 6px 12px;">管理</button></td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td>2026-08-05</td>
+            <td>小紅</td>
+            <td>社交互動</td>
+            <td>同儕互動</td>
+            <td><strong>😐 平穩</strong></td>
+            <td><strong>★★★☆☆</strong></td>
+            <td>表現一般</td>
+            <td>教保員B</td>
+            <td><button class="btn" style="padding: 6px 12px;">管理</button></td>
+          </tr>
+          <tr>
+            <td><input type="checkbox" /></td>
+            <td>2026-08-04</td>
+            <td>小華</td>
+            <td>身體狀況</td>
+            <td>用藥提醒</td>
+            <td><strong>😰 焦慮</strong></td>
+            <td><strong>★★☆☆☆</strong></td>
+            <td>需要關注</td>
+            <td>教保員A</td>
+            <td><button class="btn" style="padding: 6px 12px;">管理</button></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div class="actions">
+        <button class="btn">全選</button>
+        <button class="btn danger">刪除勾選</button>
+        <button class="btn good">匯出勾選</button>
+        <button class="btn good">匯出目前篩選</button>
+      </div>
+    </div>
+
+    <!-- 變更 3: 滿意度成果分析 -->
+    <div class="section-title">📈 變更 3：滿意度成果分析模組</div>
+    <div class="card">
+      <h3>滿意度成果分析（基於情感與服務紀錄）<span class="badge new">NEW</span></h3>
+
+      <div class="grid-4">
+        <div class="field">
+          <label>期間</label>
+          <select>
+            <option>日</option>
+            <option selected>週</option>
+            <option>月</option>
+            <option>季</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="cards">
+        <div class="card-metric">
+          <div class="muted">平均滿意度評分</div>
+          <div class="metric">4.2 / 5</div>
+        </div>
+        <div class="card-metric">
+          <div class="muted">高滿意度紀錄數</div>
+          <div class="metric">18 筆</div>
+        </div>
+        <div class="card-metric">
+          <div class="muted">情感正向比例</div>
+          <div class="metric">85%</div>
+        </div>
+        <div class="card-metric">
+          <div class="muted">滿意度進度</div>
+          <div class="metric">📈 +0.3</div>
+        </div>
+      </div>
+
+      <h4>服務分類滿意度</h4>
+      <table>
+        <thead>
+          <tr>
+            <th>服務分類</th>
+            <th>平均評分</th>
+            <th>紀錄數</th>
+            <th>情感分佈</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>新技能</strong></td>
+            <td>★★★★★ (5.0)</td>
+            <td>8</td>
+            <td>😀 愉快 (5筆), 😐 平穩 (3筆)</td>
+          </tr>
+          <tr>
+            <td><strong>社交互動</strong></td>
+            <td>★★★★☆ (4.0)</td>
+            <td>7</td>
+            <td>😐 平穩 (4筆), 😀 愉快 (3筆)</td>
+          </tr>
+          <tr>
+            <td><strong>身體狀況</strong></td>
+            <td>★★★☆☆ (3.5)</td>
+            <td>5</td>
+            <td>😐 平穩 (3筆), 😰 焦慮 (2筆)</td>
+          </tr>
+          <tr>
+            <td><strong>家長聯繫</strong></td>
+            <td>★★★★☆ (4.3)</td>
+            <td>6</td>
+            <td>😀 愉快 (4筆), 😐 平穩 (2筆)</td>
+          </tr>
+        </tbody>
+      </table>
+
+      <p class="mini" style="background: #f0f8ff; padding: 12px; border-left: 4px solid var(--brand); border-radius: 4px;">
+        <strong>📊 AI 摘要：</strong> 本週共記錄 26 筆服務紀錄，平均滿意度評分 4.2/5。高滿意度紀錄 18 筆，情感正向比例 85%。主要服務分類為「新技能」，表現最優異。建議持續關注「身體狀況」分類的低評分項目，強化相關教保策略。
+      </p>
+    </div>
+
+    <!-- 功能對比 -->
+    <div class="section-title">🔍 功能對比</div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>功能項目</th>
+            <th>變更前</th>
+            <th>變更後</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>服務紀錄情感字段</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 新增（5種情感選項）</td>
+          </tr>
+          <tr>
+            <td><strong>滿意度評分</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 新增（1-5 星級）</td>
+          </tr>
+          <tr>
+            <td><strong>表格展示</strong></td>
+            <td>8 列</td>
+            <td>10 列（+2新增列）</td>
+          </tr>
+          <tr>
+            <td><strong>滿意度分析</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 新增專用模組</td>
+          </tr>
+          <tr>
+            <td><strong>平均評分計算</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 自動計算實時更新</td>
+          </tr>
+          <tr>
+            <td><strong>情感正向比例</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 自動計算百分比</td>
+          </tr>
+          <tr>
+            <td><strong>分類滿意度統計</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 詳細分類表</td>
+          </tr>
+          <tr>
+            <td><strong>趨勢分析</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 與前期比較</td>
+          </tr>
+          <tr>
+            <td><strong>AI 摘要</strong></td>
+            <td>❌ 無</td>
+            <td>✅ 自動生成改進建議</td>
+          </tr>
+          <tr>
+            <td><strong>導出功能</strong></td>
+            <td>✅ 基礎導出</td>
+            <td>✅ 新增情感和評分欄位</td>
+          </tr>
+          <tr>
+            <td><strong>時間期間選擇</strong></td>
+            <td>✅ 日週月季</td>
+            <td>✅ 日週月季（獨立選擇）</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 使用示例 -->
+    <div class="section-title">💡 使用示例</div>
+    <div class="card">
+      <h4>📌 場景：新增一周的服務紀錄並查看成果</h4>
+      <ol style="line-height: 2;">
+        <li>進入 <strong>「情感行為」</strong> 頁籤</li>
+        <li>向下滾動到 <strong>「個案服務紀錄」</strong> 表單</li>
+        <li>依次填寫：
+          <ul>
+            <li>日期：選擇日期</li>
+            <li>個案：選擇個案</li>
+            <li>分類：選擇服務分類</li>
+            <li>重點：填寫服務重點</li>
+            <li>✨ <strong>情感滿意度</strong>：選擇情感狀態（新功能）</li>
+            <li>⭐ <strong>滿意度評分</strong>：選擇 1-5 評分（新功能）</li>
+            <li>內容：填寫詳細內容</li>
+          </ul>
+        </li>
+        <li>點擊 <strong>「新增服務紀錄」</strong> 按鈕保存</li>
+        <li>進入 <strong>「成效分析」</strong> 頁籤</li>
+        <li>向下滾動找到 <strong>「滿意度成果分析」</strong> 卡片</li>
+        <li>查看實時計算的分析數據和 AI 摘要</li>
+      </ol>
+    </div>
+
+    <!-- 技術細節 -->
+    <div class="section-title">🔧 技術細節</div>
+    <div class="card">
+      <h4>新增 JavaScript 計算邏輯</h4>
+      <pre style="background: #f5f5f5; padding: 15px; border-radius: 8px; overflow-x: auto; font-size: 12px;">
+// 新增狀態變量
+satisfactionAnalysisPeriod: "月"
+
+// 新增服務紀錄字段
+{
+  emotionSatisfaction: "😀 愉快",    // 情感滿意度
+  satisfactionScore: 4,              // 評分
+}
+
+// 新增計算函數
+function renderSatisfactionAnalysis() {
+  // 計算平均評分
+  const avgScore = (總評分) / (紀錄數)
+  
+  // 計算高滿意度（4-5分）
+  const highCount = 評分 >= 4 的紀錄數
+  
+  // 計算情感正向比例
+  const positivePercent = (愉快 + 平穩) / 總數 × 100%
+  
+  // 計算趨勢
+  const trend = 本期評分 vs 前期評分
+}</pre>
+    </div>
+
+    <!-- 優勢說明 -->
+    <div class="section-title">✅ 功能優勢</div>
+    <div class="card">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+        <div>
+          <h4>📊 數據分析</h4>
+          <ul>
+            <li>實時計算平均滿意度評分</li>
+            <li>自動識別高滿意度紀錄</li>
+            <li>量化情感正向比例</li>
+            <li>對比前期改進趨勢</li>
+          </ul>
+        </div>
+        <div>
+          <h4>🎯 業務應用</h4>
+          <ul>
+            <li>評估教保服務質量</li>
+            <li>追蹤個案情感發展</li>
+            <li>分析分類服務表現</li>
+            <li>支持成果報告生成</li>
+          </ul>
+        </div>
+        <div>
+          <h4>💼 管理決策</h4>
+          <ul>
+            <li>識別需要改進的領域</li>
+            <li>優化教保策略</li>
+            <li>與家長溝通進度</li>
+            <li>資源配置優化</li>
+          </ul>
+        </div>
+        <div>
+          <h4>🔐 數據完整性</h4>
+          <ul>
+            <li>保持現有權限機制</li>
+            <li>完整的操作日誌</li>
+            <li>導出功能增強</li>
+            <li>數據安全保護</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <!-- 快速訪問 -->
+    <div class="section-title">🚀 立即開始</div>
+    <div class="card">
+      <p>點擊下方按鈕進入應用查看完整功能：</p>
+      <div class="actions">
+        <a href="https://j9zrzt95b6-sudo.github.io/shiny-journey/official.html?syncKey=center-a&syncApi=https%3A%2F%2Fsmart-care-sync-api.j9zrzt95b6.workers.dev%2Fstate" target="_blank">
+          <button class="btn primary">進入應用查看完整功能</button>
+        </a>
+      </div>
+      <p class="mini" style="background: #e8f5e9; padding: 12px; border-left: 4px solid var(--brand-2); border-radius: 4px;">
+        💡 提示：進入應用後，進入「情感行為」頁籤查看新增的服務紀錄表單，然後進入「成效分析」查看滿意度成果分析。
+      </p>
+    </div>
+
+    <div style="text-align: center; margin-top: 40px; padding: 20px; color: var(--muted);">
+      <p>🎉 情感滿意度分析功能實現完成</p>
+      <p style="font-size: 12px;">變更日期：2026-08-05 | 版本：1.0</p>
+    </div>
+  </div>
+</body>
+</html>

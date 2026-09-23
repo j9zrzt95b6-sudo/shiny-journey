@@ -3,7 +3,7 @@ import { getStore } from "@netlify/blobs";
 const CORS_HEADERS = {
   "content-type": "application/json; charset=utf-8",
   "access-control-allow-origin": "*",
-  "access-control-allow-methods": "GET,POST,OPTIONS",
+  "access-control-allow-methods": "GET,POST,DELETE,OPTIONS",
   "access-control-allow-headers": "content-type"
 };
 
@@ -19,6 +19,19 @@ function resolveRuntimeStore(context) {
   if (context?.netlify?.blobs?.getStore) return context.netlify.blobs.getStore("smart-care-state");
   if (context?.netlifyBlobs?.getStore) return context.netlifyBlobs.getStore("smart-care-state");
   return null;
+}
+
+function getUpdatedAt(payload) {
+  const ms = Number(payload && payload._meta && payload._meta.updatedAt);
+  return Number.isFinite(ms) && ms > 0 ? ms : 0;
+}
+
+function getClientBaseUpdatedAt(payload) {
+  const fromLastSyncedAt = Number(payload && payload._meta && payload._meta.lastSyncedAt);
+  if (Number.isFinite(fromLastSyncedAt) && fromLastSyncedAt > 0) return fromLastSyncedAt;
+  const fromBaseUpdatedAt = Number(payload && payload._meta && payload._meta.baseUpdatedAt);
+  if (Number.isFinite(fromBaseUpdatedAt) && fromBaseUpdatedAt > 0) return fromBaseUpdatedAt;
+  return 0;
 }
 
 export default async function handler(req, context) {
@@ -48,6 +61,14 @@ export default async function handler(req, context) {
       return json(200, { ok: true, value: value || null });
     }
 
+    if (req.method === "DELETE") {
+      if (url.searchParams.get("confirm") !== "delete") {
+        return json(400, { ok: false, error: "missing confirm=delete" });
+      }
+      await store.delete(syncKey);
+      return json(200, { ok: true, deleted: true });
+    }
+
     if (req.method === "POST") {
       let body;
       try {
@@ -57,8 +78,36 @@ export default async function handler(req, context) {
       }
       if (!body || typeof body !== "object") return json(400, { ok: false, error: "invalid body" });
 
-      await store.setJSON(syncKey, body);
-      return json(200, { ok: true });
+      const existing = await store.get(syncKey, { type: "json" });
+      const existingUpdatedAt = getUpdatedAt(existing);
+      const incomingUpdatedAt = getUpdatedAt(body);
+      const clientBaseUpdatedAt = getClientBaseUpdatedAt(body);
+      const force = url.searchParams.get("force") === "1";
+
+      if (!force && existingUpdatedAt > 0 && clientBaseUpdatedAt <= 0) {
+        return json(409, { ok: false, error: "missing base version", serverUpdatedAt: existingUpdatedAt });
+      }
+      if (!force && existingUpdatedAt > 0 && clientBaseUpdatedAt < existingUpdatedAt) {
+        return json(409, { ok: false, error: "stale base version", serverUpdatedAt: existingUpdatedAt });
+      }
+
+      const serverUpdatedAt = Date.now();
+      const nextBody = {
+        ...body,
+        _meta: {
+          ...(body._meta || {}),
+          updatedAt: serverUpdatedAt,
+          lastSyncedAt: serverUpdatedAt
+        }
+      };
+
+      await store.setJSON(syncKey, nextBody);
+      return json(200, {
+        ok: true,
+        updatedAt: serverUpdatedAt,
+        acceptedClientUpdatedAt: incomingUpdatedAt || 0,
+        previousServerUpdatedAt: existingUpdatedAt
+      });
     }
 
     return json(405, { ok: false, error: "method not allowed" });
